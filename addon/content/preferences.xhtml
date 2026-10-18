@@ -93,15 +93,20 @@
     no-repeat; mask-position: center; mask-size: contain; -webkit-mask-image:
     url("chrome://__addonRef__/content/icons/folder-open.svg");
     -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
-    -webkit-mask-size: contain; } .llm-pref-panel .llm-pref-row-toggle {
-    appearance: none; -moz-appearance: none; display: grid; align-content:
-    center; gap: 1px; min-width: 0; padding: 0; text-align: start; background:
-    transparent; border: none; color: inherit; cursor: pointer; }
-    .llm-pref-panel .llm-pref-row-name { font-size: 12px; font-weight: 600;
-    line-height: 1.35; color: FieldText; } .llm-pref-panel .llm-pref-row-sub {
-    display: flex; align-items: center; gap: 6px; min-width: 0; }
-    .llm-pref-panel .llm-pref-row-dot { flex: none; width: 6px; height: 6px;
-    border-radius: 50%; background: var(--fill-secondary, #9aa1a9); }
+    -webkit-mask-size: contain; } .llm-pref-panel .llm-pref-row-icon--proxy {
+    background-color: FieldText; mask-image:
+    url("chrome://__addonRef__/content/icons/globe.svg"); mask-repeat:
+    no-repeat; mask-position: center; mask-size: contain; -webkit-mask-image:
+    url("chrome://__addonRef__/content/icons/globe.svg"); -webkit-mask-repeat:
+    no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; }
+    .llm-pref-panel .llm-pref-row-toggle { appearance: none; -moz-appearance:
+    none; display: grid; align-content: center; gap: 1px; min-width: 0; padding:
+    0; text-align: start; background: transparent; border: none; color: inherit;
+    cursor: pointer; } .llm-pref-panel .llm-pref-row-name { font-size: 12px;
+    font-weight: 600; line-height: 1.35; color: FieldText; } .llm-pref-panel
+    .llm-pref-row-sub { display: flex; align-items: center; gap: 6px; min-width:
+    0; } .llm-pref-panel .llm-pref-row-dot { flex: none; width: 6px; height:
+    6px; border-radius: 50%; background: var(--fill-secondary, #9aa1a9); }
     .llm-pref-panel .llm-pref-row-dot[data-on="true"] { background:
     var(--accent-green, #3aa76d); } .llm-pref-panel .llm-pref-row-summary {
     font-size: 10.5px; line-height: 1.35; color: var(--fill-secondary, #888);
@@ -2273,6 +2278,127 @@
                   ></html:span>
                 </html:div>
               </html:div>
+            </html:div>
+          </html:div>
+
+          <!-- ── Network proxy for the command-line runtimes ── -->
+          <html:div
+            class="llm-pref-row"
+            data-llm-agent-row="proxy"
+            data-open="false"
+          >
+            <html:div class="llm-pref-row-head">
+              <html:span
+                class="llm-pref-row-icon llm-pref-row-icon--proxy"
+              ></html:span>
+              <html:button
+                class="llm-pref-row-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="__addonRef__-agent-row-proxy-body"
+              >
+                <html:span class="llm-pref-row-name">Network proxy</html:span>
+                <html:span class="llm-pref-row-sub">
+                  <html:span
+                    class="llm-pref-row-dot"
+                    data-llm-row-dot="proxy"
+                  ></html:span>
+                  <html:span
+                    class="llm-pref-row-summary"
+                    data-llm-row-summary="proxy"
+                  ></html:span>
+                </html:span>
+              </html:button>
+              <html:span class="llm-pref-row-tag"></html:span>
+              <html:span></html:span>
+              <html:span class="llm-pref-row-chevron">›</html:span>
+            </html:div>
+            <html:div
+              id="__addonRef__-agent-row-proxy-body"
+              class="llm-pref-row-body"
+              hidden="hidden"
+            >
+              <html:span class="llm-pref-hint">
+                The proxy used by Codex and Antigravity, which run as programs
+                on this computer. Model APIs called with an API key follow
+                Zotero's own network settings, and the Claude Code bridge uses
+                the environment it was started in.
+              </html:span>
+              <html:div class="llm-pref-field">
+                <html:label for="__addonRef__-cli-proxy-mode">Proxy</html:label>
+                <html:div class="llm-pref-control">
+                  <html:select
+                    id="__addonRef__-cli-proxy-mode"
+                    class="llm-pref-select"
+                  >
+                    <html:option value="system">Use system proxy</html:option>
+                    <html:option value="manual">Manual proxy</html:option>
+                    <html:option value="none">No proxy</html:option>
+                  </html:select>
+                </html:div>
+              </html:div>
+              <html:div
+                id="__addonRef__-cli-proxy-manual"
+                class="llm-pref-section"
+                hidden="hidden"
+              >
+                <html:div class="llm-pref-field">
+                  <html:label for="__addonRef__-cli-proxy-protocol"
+                    >Protocol</html:label
+                  >
+                  <html:div class="llm-pref-control">
+                    <html:select
+                      id="__addonRef__-cli-proxy-protocol"
+                      class="llm-pref-select"
+                    >
+                      <html:option value="http">HTTP</html:option>
+                      <html:option value="https">HTTPS</html:option>
+                      <html:option value="socks5">SOCKS5</html:option>
+                    </html:select>
+                  </html:div>
+                </html:div>
+                <html:div class="llm-pref-field">
+                  <html:label for="__addonRef__-cli-proxy-host"
+                    >Address</html:label
+                  >
+                  <html:div class="llm-pref-control">
+                    <html:input
+                      id="__addonRef__-cli-proxy-host"
+                      class="llm-pref-input"
+                      type="text"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="127.0.0.1"
+                    ></html:input>
+                  </html:div>
+                </html:div>
+                <html:div class="llm-pref-field">
+                  <html:label for="__addonRef__-cli-proxy-port"
+                    >Port</html:label
+                  >
+                  <html:div class="llm-pref-control">
+                    <html:input
+                      id="__addonRef__-cli-proxy-port"
+                      class="llm-pref-input"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="7890"
+                    ></html:input>
+                    <html:span
+                      id="__addonRef__-cli-proxy-status"
+                      class="llm-pref-hint"
+                      role="status"
+                      aria-live="polite"
+                    ></html:span>
+                  </html:div>
+                </html:div>
+              </html:div>
+              <html:span class="llm-pref-hint">
+                Applies to the next message. A running Codex session picks it up
+                after Zotero restarts.
+              </html:span>
             </html:div>
           </html:div>
 
