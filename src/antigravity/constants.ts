@@ -26,6 +26,8 @@ export const ANTIGRAVITY_EFFORT_OPTIONS = [
   "low",
   "medium",
   "high",
+  "xhigh",
+  "max",
 ] as const;
 export type AntigravityEffortMode = (typeof ANTIGRAVITY_EFFORT_OPTIONS)[number];
 

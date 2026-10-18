@@ -26,7 +26,7 @@ export type AgyTurnOptions = {
   binaryPath?: string;
   prompt: string;
   model?: string;
-  effort?: "low" | "medium" | "high";
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   mode?: "plan";
   skipPermissions?: boolean;
   conversationId?: string;
@@ -181,6 +181,8 @@ export function buildAgyArguments(
     "stream-json",
     "--output-format",
     "stream-json",
+    // Paper text and questions are content, never `/command`s or skills.
+    "--disable-slash-commands",
   ];
   if (options.model?.trim()) args.push("--model", options.model.trim());
   if (options.effort) args.push("--effort", options.effort);
@@ -439,14 +441,13 @@ async function captureAgy(binary: string, args: string[]): Promise<AgyCapture> {
 }
 
 /**
- * The model slugs this account can use. Tries `agy models --output-format
- * json` first and falls back to the plain listing, since the JSON flag is
- * not available on every build.
+ * The models this account can use. agy 1.4.2 prints a plain table for
+ * `agy models`; the JSON form is tried after it for builds that offer one.
  */
-export async function listAgyModels(binaryPath?: string): Promise<string[]> {
+export async function listAgyModels(binaryPath?: string): Promise<AgyModel[]> {
   const binary = await resolveAgyBinary(binaryPath);
   let failure = "";
-  for (const args of [["models", "--output-format", "json"], ["models"]]) {
+  for (const args of [["models"], ["models", "--output-format", "json"]]) {
     const run = await captureAgy(binary, args);
     if (run.timedOut) {
       throw new AgyTurnError(
@@ -462,13 +463,30 @@ export async function listAgyModels(binaryPath?: string): Promise<string[]> {
   return [];
 }
 
-export function parseAgyModelList(raw: string): string[] {
-  const slugs: string[] = [];
+/** One model `agy models` lists: the slug `--model` takes and its name. */
+export type AgyModel = { id: string; label: string };
+
+export function parseAgyModelList(raw: string): AgyModel[] {
+  const models: AgyModel[] = [];
+  const text = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
   const add = (value: unknown) => {
-    if (typeof value === "string" && value.trim()) slugs.push(value.trim());
+    if (text(value)) models.push({ id: text(value), label: text(value) });
     else if (value && typeof value === "object") {
       const record = value as Record<string, unknown>;
-      add(record.slug ?? record.id ?? record.name ?? record.model);
+      const id =
+        text(record.slug) ||
+        text(record.id) ||
+        text(record.model) ||
+        text(record.name);
+      if (!id) return;
+      const label =
+        text(record.display_name) ||
+        text(record.displayName) ||
+        text(record.label) ||
+        text(record.name) ||
+        id;
+      models.push({ id, label });
     }
   };
   const visit = (parsed: unknown) => {
@@ -492,34 +510,45 @@ export function parseAgyModelList(raw: string): string[] {
       }
     }
   }
-  if (!slugs.length) slugs.push(...parseAgyModelText(trimmed));
-  return [...new Set(slugs)];
+  if (!models.length) models.push(...parseAgyModelText(trimmed));
+  const seen = new Set<string>();
+  return models.filter((model) => {
+    if (seen.has(model.id)) return false;
+    seen.add(model.id);
+    return true;
+  });
 }
 
 const ANSI_ESCAPE = /\u001b\[[0-9;?]*[A-Za-z]/g;
 const MODEL_SLUG = /^[a-z0-9][a-z0-9._:/-]*$/;
 
 /**
- * The plain `agy models` listing: one model per line, the slug first, maybe
- * after a bullet or a "current" marker and before a display name. Only
- * slug-shaped tokens are kept, so headers and prose drop out.
+ * The plain `agy models` listing, as agy 1.4.2 prints it: one model per
+ * line, the slug and then its display name ("gemini-4-argon-high  Gemini 4
+ * Argon (High)"), maybe after a bullet or a "current" marker. Only
+ * slug-shaped first tokens are kept, so headers and prose drop out.
  */
-function parseAgyModelText(raw: string): string[] {
-  const slugs: string[] = [];
+function parseAgyModelText(raw: string): AgyModel[] {
+  const models: AgyModel[] = [];
   for (const rawLine of raw.replace(ANSI_ESCAPE, "").split(/\r?\n/)) {
     const line = rawLine
       .replace(/^[\s*•>✓✔→-]+/u, "")
       .replace(/^\d+[.)]\s+/, "")
       .trim();
-    const token = line.split(/[\s,|(]/)[0]?.replace(/[:,]$/, "") || "";
+    const token = line.split(/[\s,|(]/)[0] || "";
+    const id = token.replace(/[:,]$/, "");
     if (
-      MODEL_SLUG.test(token) &&
-      /[a-z]/.test(token) &&
-      /\d/.test(token) &&
-      /[-./]/.test(token)
+      MODEL_SLUG.test(id) &&
+      /[a-z]/.test(id) &&
+      /\d/.test(id) &&
+      /[-./]/.test(id)
     ) {
-      slugs.push(token);
+      const label = line
+        .slice(token.length)
+        .replace(/^[\s,|:–—-]+/u, "")
+        .trim();
+      models.push({ id, label: label || id });
     }
   }
-  return slugs;
+  return models;
 }

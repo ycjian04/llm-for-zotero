@@ -1,5 +1,5 @@
 import type { RuntimeModelEntry } from "../utils/modelProviders";
-import { listAgyModels } from "./agyProcess";
+import { listAgyModels, type AgyModel } from "./agyProcess";
 
 export const ANTIGRAVITY_RUNTIME_PROVIDER_LABEL = "Antigravity";
 const ANTIGRAVITY_RUNTIME_GROUP_ID = "antigravity-runtime";
@@ -41,12 +41,12 @@ function createRuntimeModelEntry(params: {
 }
 
 /**
- * The Antigravity model menu: the CLI default first, then the slugs
+ * The Antigravity model menu: the CLI default first, then the models
  * `agy models` returned, with a saved model kept even when the catalog no
  * longer lists it.
  */
 export function buildAntigravityRuntimeModelEntries(params: {
-  models: string[];
+  models: AgyModel[];
   selectedModel: string;
 }): RuntimeModelEntry[] {
   const entries: RuntimeModelEntry[] = [
@@ -58,7 +58,7 @@ export function buildAntigravityRuntimeModelEntries(params: {
   ];
   const seen = new Set<string>([ANTIGRAVITY_DEFAULT_MODEL_ID]);
   const selected = params.selectedModel.trim();
-  if (selected && !params.models.includes(selected)) {
+  if (selected && !params.models.some((model) => model.id === selected)) {
     entries.push(
       createRuntimeModelEntry({
         model: selected,
@@ -69,12 +69,12 @@ export function buildAntigravityRuntimeModelEntries(params: {
     seen.add(selected);
   }
   for (const [index, model] of params.models.entries()) {
-    if (seen.has(model)) continue;
-    seen.add(model);
+    if (seen.has(model.id)) continue;
+    seen.add(model.id);
     entries.push(
       createRuntimeModelEntry({
-        model,
-        displayName: model,
+        model: model.id,
+        displayName: model.label,
         providerOrder: index,
       }),
     );
@@ -92,10 +92,10 @@ export function selectAntigravityRuntimeEntry(
 
 type CatalogState = {
   binaryPath: string;
-  models: string[];
+  models: AgyModel[];
   status: "idle" | "loading" | "ready" | "error";
   error: string;
-  inFlight: Promise<string[]> | null;
+  inFlight: Promise<AgyModel[]> | null;
 };
 
 const catalog: CatalogState = {
@@ -107,7 +107,7 @@ const catalog: CatalogState = {
 };
 
 export function getAntigravityModelCatalogSnapshot(): {
-  models: string[];
+  models: AgyModel[];
   status: CatalogState["status"];
   error: string;
 } {
@@ -125,7 +125,7 @@ export function getAntigravityModelCatalogSnapshot(): {
 export function loadAntigravityModelCatalog(
   binaryPath: string,
   options: { force?: boolean; list?: typeof listAgyModels } = {},
-): Promise<string[]> {
+): Promise<AgyModel[]> {
   const pathChanged = binaryPath !== catalog.binaryPath;
   if (!options.force && !pathChanged && catalog.status === "ready") {
     return Promise.resolve(catalog.models);

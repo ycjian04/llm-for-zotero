@@ -1,7 +1,7 @@
 {
   "name": "llm-for-zotero",
   "type": "module",
-  "version": "3.9.12",
+  "version": "3.9.13",
   "description": "AI research agent rooted in your Zotero library",
   "config": {
     "addonName": "llm-for-zotero",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yilewang/llm-for-zotero.git"
+    "url": "git+https://github.com/ycjian04/llm-for-zotero.git"
   },
-  "author": "Yile Wang",
+  "author": "Yile Wang, ycjian04",
   "bugs": {
-    "url": "https://github.com/yilewang/llm-for-zotero/issues"
+    "url": "https://github.com/ycjian04/llm-for-zotero/issues"
   },
-  "homepage": "https://github.com/yilewang/llm-for-zotero#readme",
+  "homepage": "https://github.com/ycjian04/llm-for-zotero/tree/feat/antigravity-cli#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",
