@@ -12,6 +12,7 @@ import {
   toUsageStats,
 } from "./agyStream";
 import { runAgyTurn, type AgyTurnOptions } from "./agyProcess";
+import { toAntigravityModelPref } from "./modelCatalog";
 import {
   getAntigravityBinaryPathPref,
   getAntigravityEffortPref,
@@ -93,18 +94,49 @@ function formatToolStatus(toolName: string, summary?: string): string {
   return summary ? `Antigravity: ${summary}` : `Antigravity: using ${label}`;
 }
 
+export type AntigravityTurnDeps = {
+  runTurn: (options: AgyTurnOptions) => ReturnType<typeof runAgyTurn>;
+  getStoredConversationId: (conversationKey: number) => Promise<string>;
+  rememberConversationId: (
+    conversationKey: number,
+    conversationId: string,
+  ) => Promise<void>;
+  readSettings: () => {
+    binaryPath: string;
+    model: string;
+    effort: ReturnType<typeof getAntigravityEffortPref>;
+    permissionMode: ReturnType<typeof getAntigravityPermissionModePref>;
+    cwd?: string;
+  };
+};
+
+const DEFAULT_TURN_DEPS: AntigravityTurnDeps = {
+  runTurn: runAgyTurn,
+  getStoredConversationId: async (conversationKey) =>
+    (
+      await getAntigravityConversationSummary(conversationKey)
+    )?.providerSessionId?.trim() || "",
+  rememberConversationId,
+  readSettings: () => ({
+    binaryPath: getAntigravityBinaryPathPref(),
+    model: getAntigravityRuntimeModelPref(),
+    effort: getAntigravityEffortPref(),
+    permissionMode: getAntigravityPermissionModePref(),
+    cwd: resolveAntigravityRuntimeCwd(),
+  }),
+};
+
 /** One Antigravity turn from the panel, shared by the send and retry flows. */
 export async function runAntigravityPanelTurn(
   turn: AntigravityPanelTurn,
   panel: AntigravityPanelCallbacks,
-  runTurn: (
-    options: AgyTurnOptions,
-  ) => ReturnType<typeof runAgyTurn> = runAgyTurn,
+  overrides: Partial<AntigravityTurnDeps> = {},
 ): Promise<ModelTurnOutcome> {
-  const summary = await getAntigravityConversationSummary(turn.conversationKey);
+  const deps = { ...DEFAULT_TURN_DEPS, ...overrides };
+  const settings = deps.readSettings();
   const storedConversationId = turn.freshConversation
     ? ""
-    : summary?.providerSessionId?.trim() || "";
+    : await deps.getStoredConversationId(turn.conversationKey);
   const resumed = Boolean(storedConversationId);
   const contextFingerprint = fingerprintSystemContext(turn.messages);
   const includeSystem =
@@ -117,19 +149,18 @@ export async function runAntigravityPanelTurn(
     includeSystem,
   });
 
-  const permissionMode = getAntigravityPermissionModePref();
-  const effort = getAntigravityEffortPref();
+  const { permissionMode, effort } = settings;
   const accumulator = new AgyTextAccumulator();
   panel.onStatus("Antigravity is thinking");
-  const result = await runTurn({
-    binaryPath: getAntigravityBinaryPathPref(),
+  const result = await deps.runTurn({
+    binaryPath: settings.binaryPath,
     prompt,
-    model: (turn.model ?? getAntigravityRuntimeModelPref()).trim() || undefined,
+    model: toAntigravityModelPref(turn.model ?? settings.model) || undefined,
     effort: effort === "auto" ? undefined : effort,
     mode: permissionMode === "plan" ? "plan" : undefined,
     skipPermissions: permissionMode === "full",
     conversationId: storedConversationId || undefined,
-    cwd: resolveAntigravityRuntimeCwd(),
+    cwd: settings.cwd,
     signal: turn.signal,
     onEvent: (event) => {
       if (!panel.isLive()) return;
@@ -148,8 +179,8 @@ export async function runAntigravityPanelTurn(
 
   sentSystemContextByConversation.set(turn.conversationKey, contextFingerprint);
   const conversationId = result.conversationId || storedConversationId;
-  if (conversationId) {
-    await rememberConversationId(turn.conversationKey, conversationId);
+  if (conversationId && conversationId !== storedConversationId) {
+    await deps.rememberConversationId(turn.conversationKey, conversationId);
   }
   const usage = toUsageStats(result.usage);
   if (usage && panel.isLive()) panel.onUsage?.(usage);
