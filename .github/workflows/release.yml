@@ -33,7 +33,27 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `zotero-plugin release` builds its changelog from `git log` since the
+      # previous version tag. This fork carries no upstream tags, so that log
+      # spans the whole history and overflows execSync (ENOBUFS). Publish the
+      # two releases Zotero's updater reads with gh instead.
       - name: Publish release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release -- --yes
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" .scaffold/build/llm-for-zotero.xpi --clobber
+          else
+            gh release create "$TAG" .scaffold/build/llm-for-zotero.xpi \
+              --target "$GITHUB_SHA" --title "Release $TAG" \
+              --notes "Install llm-for-zotero.xpi in Zotero (Tools > Plugins)." \
+              --latest
+          fi
+          if ! gh release view release >/dev/null 2>&1; then
+            gh release create release --target "$GITHUB_SHA" --prerelease \
+              --latest=false --title "Update manifest" \
+              --notes "update.json for Zotero's automatic updates."
+          fi
+          gh release upload release .scaffold/build/update.json \
+            .scaffold/build/update-beta.json --clobber
