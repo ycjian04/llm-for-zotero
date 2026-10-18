@@ -13,6 +13,7 @@ import {
   buildAgyArguments,
   listAgyBinaryCandidates,
   parseAgyModelList,
+  parseScutilProxy,
 } from "../src/antigravity/agyProcess";
 import {
   ANTIGRAVITY_DEFAULT_MODEL_ID,
@@ -262,6 +263,43 @@ describe("Antigravity agy process helpers", function () {
         "--conversation",
         "c-9",
       ],
+    );
+  });
+
+  it("turns the macOS system proxy into proxy variables for agy", function () {
+    const clash = [
+      "<dictionary> {",
+      "  ExceptionsList : <array> {",
+      "    0 : 127.0.0.1",
+      "  }",
+      "  HTTPEnable : 1",
+      "  HTTPPort : 7890",
+      "  HTTPProxy : 127.0.0.1",
+      "  HTTPSEnable : 1",
+      "  HTTPSPort : 7890",
+      "  HTTPSProxy : 127.0.0.1",
+      "  SOCKSEnable : 1",
+      "  SOCKSPort : 7891",
+      "  SOCKSProxy : 127.0.0.1",
+      "}",
+    ].join("\n");
+    assert.deepInclude(parseScutilProxy(clash), {
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      http_proxy: "http://127.0.0.1:7890",
+      ALL_PROXY: "socks5://127.0.0.1:7891",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+    });
+    assert.equal(
+      parseScutilProxy(
+        "<dictionary> {\n  SOCKSEnable : 1\n  SOCKSPort : 1080\n  SOCKSProxy : 10.0.0.2\n}",
+      ).HTTPS_PROXY,
+      "socks5://10.0.0.2:1080",
+    );
+    assert.deepEqual(
+      parseScutilProxy(
+        "<dictionary> {\n  HTTPEnable : 0\n  HTTPSEnable : 0\n}",
+      ),
+      {},
     );
   });
 

@@ -219,6 +219,101 @@ function buildLaunchPath(binary: string): string {
     .join(separator);
 }
 
+const PROXY_ENV_KEYS = [
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+];
+
+/**
+ * The proxy macOS is set to use, from `scutil --proxy`. agy is a Go binary:
+ * it reads only the *_PROXY variables, never the system proxy that Codex and
+ * the browser follow, and Zotero opened from the Dock has no such variables.
+ * So a proxy such as Clash in system-proxy mode is invisible to agy unless it
+ * is handed over here.
+ */
+export function parseScutilProxy(raw: string): Record<string, string> {
+  const fields = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z]+)\s*:\s*(\S+)\s*$/);
+    if (match) fields.set(match[1]!, match[2]!);
+  }
+  const endpoint = (kind: "HTTPS" | "HTTP" | "SOCKS") => {
+    if (fields.get(`${kind}Enable`) !== "1") return "";
+    const host = fields.get(`${kind}Proxy`);
+    const port = fields.get(`${kind}Port`);
+    return host && port ? `${host}:${port}` : "";
+  };
+  const https = endpoint("HTTPS");
+  const http = endpoint("HTTP");
+  const socks = endpoint("SOCKS");
+  const httpsProxy = https
+    ? `http://${https}`
+    : http
+      ? `http://${http}`
+      : socks
+        ? `socks5://${socks}`
+        : "";
+  if (!httpsProxy) return {};
+  const httpProxy = http ? `http://${http}` : httpsProxy;
+  const env: Record<string, string> = {
+    HTTPS_PROXY: httpsProxy,
+    https_proxy: httpsProxy,
+    HTTP_PROXY: httpProxy,
+    http_proxy: httpProxy,
+    NO_PROXY: "localhost,127.0.0.1,::1",
+    no_proxy: "localhost,127.0.0.1,::1",
+  };
+  if (socks) {
+    env.ALL_PROXY = `socks5://${socks}`;
+    env.all_proxy = `socks5://${socks}`;
+  }
+  return env;
+}
+
+let systemProxyCache: { at: number; env: Record<string, string> } | null = null;
+
+async function readMacSystemProxy(): Promise<Record<string, string>> {
+  if (systemProxyCache && Date.now() - systemProxyCache.at < 30_000) {
+    return systemProxyCache.env;
+  }
+  let env: Record<string, string> = {};
+  try {
+    const Subprocess = await CodexAppServerProcess.loadSubprocessModule();
+    const proc = await Subprocess.call({
+      command: "/usr/sbin/scutil",
+      arguments: ["--proxy"],
+    });
+    let out = "";
+    while (true) {
+      const chunk = await proc.stdout?.readString?.();
+      if (!chunk) break;
+      out += chunk;
+    }
+    await proc.wait?.();
+    env = parseScutilProxy(out);
+  } catch (error) {
+    appLogger.warn("Antigravity: could not read the macOS proxy", error);
+  }
+  systemProxyCache = { at: Date.now(), env };
+  return env;
+}
+
+/** PATH, plus the system proxy when Zotero itself was given none. */
+async function buildAgyLaunchEnvironment(
+  binary: string,
+): Promise<Record<string, string>> {
+  const env: Record<string, string> = { PATH: buildLaunchPath(binary) };
+  const hasProxy = PROXY_ENV_KEYS.some((key) => getRuntimeEnvValue(key));
+  if (!hasProxy && getRuntimePlatformInfo().platform === "macos") {
+    Object.assign(env, await readMacSystemProxy());
+  }
+  return env;
+}
+
 class AgyTurnError extends Error {
   constructor(
     message: string,
@@ -259,7 +354,7 @@ export async function runAgyTurn(
       command,
       arguments: commandArgs,
       stderr: "pipe",
-      environment: { PATH: buildLaunchPath(binary) },
+      environment: await buildAgyLaunchEnvironment(binary),
       environmentAppend: true,
       ...(options.cwd ? { workdir: options.cwd } : {}),
     });
@@ -421,7 +516,7 @@ async function captureAgy(binary: string, args: string[]): Promise<AgyCapture> {
     command,
     arguments: commandArgs,
     stderr: "pipe",
-    environment: { PATH: buildLaunchPath(binary) },
+    environment: await buildAgyLaunchEnvironment(binary),
     environmentAppend: true,
   });
   // A CLI that is not signed in may wait for a browser sign-in; give up
