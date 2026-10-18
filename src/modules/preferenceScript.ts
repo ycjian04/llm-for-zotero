@@ -6210,11 +6210,20 @@ function bindAntigravityPreferences(doc: Document): void {
       }),
     );
 
+  const customModelWrap = byId<HTMLDivElement>("custom-model-wrap");
+  const customModelInput = byId<HTMLInputElement>("custom-model");
+  // A model agy did not list (or a build whose `agy models` prints nothing)
+  // is typed by hand, as the Codex card does.
+  const CUSTOMIZED = "__customized__";
+  const syncCustomModel = () => {
+    const customized = modelSelect?.value === CUSTOMIZED;
+    if (customModelWrap) customModelWrap.hidden = !customized;
+    if (customModelInput) customModelInput.disabled = !customized;
+  };
   const renderModels = (models: string[]) => {
     if (!modelSelect) return;
     const stored = getAntigravityRuntimeModelPref();
     const values = ["", ...models];
-    if (stored && !values.includes(stored)) values.splice(1, 0, stored);
     modelSelect.replaceChildren(
       ...values.map((value) => {
         const option = el(doc, "option") as HTMLOptionElement;
@@ -6223,7 +6232,24 @@ function bindAntigravityPreferences(doc: Document): void {
         return option;
       }),
     );
-    modelSelect.value = stored;
+    const customized = el(doc, "option") as HTMLOptionElement;
+    customized.value = CUSTOMIZED;
+    customized.textContent = t("Customized");
+    modelSelect.appendChild(customized);
+    if (values.includes(stored)) {
+      modelSelect.value = stored;
+    } else {
+      modelSelect.value = CUSTOMIZED;
+      if (customModelInput) customModelInput.value = stored;
+    }
+    syncCustomModel();
+  };
+  const commitCustomModel = () => {
+    if (modelSelect?.value !== CUSTOMIZED || !customModelInput) return;
+    const model = customModelInput.value.trim();
+    if (!model) return;
+    setAntigravityRuntimeModelPref(model);
+    notifySummary(modelSelect);
   };
 
   let refreshId = 0;
@@ -6237,7 +6263,9 @@ function bindAntigravityPreferences(doc: Document): void {
       if (modelStatus) {
         modelStatus.textContent = models.length
           ? t("Antigravity models loaded")
-          : t("agy returned no models; the default will be used.");
+          : t(
+              "agy returned no models. Use the default, or choose Customized and type a model name.",
+            );
       }
     } catch (error) {
       if (requestId !== refreshId) return;
@@ -6272,8 +6300,16 @@ function bindAntigravityPreferences(doc: Document): void {
     if (enabled) void refreshModels();
   });
   modelSelect?.addEventListener("change", () => {
+    syncCustomModel();
+    if (modelSelect.value === CUSTOMIZED) {
+      commitCustomModel();
+      customModelInput?.focus();
+      return;
+    }
     setAntigravityRuntimeModelPref(modelSelect.value);
   });
+  customModelInput?.addEventListener("change", commitCustomModel);
+  customModelInput?.addEventListener("blur", commitCustomModel);
   modelRefresh?.addEventListener("click", () => void refreshModels());
   effortSelect?.addEventListener("change", () => {
     const value = effortSelect.value as AntigravityEffortMode;
@@ -6303,7 +6339,7 @@ function bindAntigravityPreferences(doc: Document): void {
         models.length
           ? `${models.length} ${t("models available.")}`
           : t(
-              "It returned no models; if messages fail, run agy in a terminal and sign in.",
+              "It returned no models. Use the default, or choose Customized and type a model name.",
             )
       }`;
     } catch (error) {

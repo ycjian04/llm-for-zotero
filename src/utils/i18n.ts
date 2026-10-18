@@ -1131,7 +1131,8 @@ const zhCN: Record<string, string> = {
     "并完成登录。Zotero 以文本形式发送论文，从不读取你的登录凭据。启用后，Zotero 会在聊天标题栏添加 Antigravity 按钮。",
   "Antigravity default": "Antigravity 默认模型",
   "Models are read with": "模型列表读取自",
-  ". The default lets agy choose.": "。选择默认则由 agy 自行决定。",
+  ". The default lets agy choose. Choose Customized to type a model name yourself.":
+    "。选择默认则由 agy 自行决定；选择「自定义」可手动填写模型名。",
   Effort: "推理强度",
   "Ask (actions that need approval are skipped)":
     "询问（需要批准的操作会被跳过）",
@@ -1155,14 +1156,14 @@ const zhCN: Record<string, string> = {
     "Antigravity 未返回任何模型；agy 将使用默认模型。",
   "Retry loading Antigravity models": "重试加载 Antigravity 模型",
   "Antigravity models loaded": "已加载 Antigravity 模型",
-  "agy returned no models; the default will be used.":
-    "agy 未返回模型；将使用默认模型。",
+  "agy returned no models. Use the default, or choose Customized and type a model name.":
+    "agy 未返回模型。可使用默认模型，或选择「自定义」手动填写模型名。",
   "Could not load Antigravity models": "无法加载 Antigravity 模型",
   "Looking for agy…": "正在查找 agy…",
   "Found agy at": "已找到 agy：",
   "models available.": "个可用模型。",
-  "It returned no models; if messages fail, run agy in a terminal and sign in.":
-    "它没有返回模型；如果发送消息失败，请在终端运行 agy 并登录。",
+  "It returned no models. Use the default, or choose Customized and type a model name.":
+    "它没有返回模型。可使用默认模型，或选择「自定义」手动填写模型名。",
 
   // ── Agent tab: runtime rows, Codex model catalog, merged MCP panel ──
   "Web search on": "网页搜索已开启",
