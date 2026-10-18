@@ -254,6 +254,22 @@ export function buildAgyPrompt(params: {
   resumed: boolean;
   includeSystem: boolean;
 }): string {
+  const { context, question } = splitAgyPrompt(params);
+  return context
+    ? `${context}\n\n<question>\n${question}\n</question>`
+    : question;
+}
+
+/**
+ * The turn's prompt in two parts: the instructions, paper text and earlier
+ * conversation it carries (empty when there is none to send), and the
+ * question itself.
+ */
+export function splitAgyPrompt(params: {
+  messages: ChatMessage[];
+  resumed: boolean;
+  includeSystem: boolean;
+}): { context: string; question: string } {
   const system = params.messages
     .filter((message) => message.role === "system")
     .map((message) => contentText(message.content).trim())
@@ -289,10 +305,31 @@ export function buildAgyPrompt(params: {
       ),
     );
   }
-  sections.push(
-    sections.length ? `<question>\n${question}\n</question>` : question,
-  );
-  return sections.join("\n\n");
+  return { context: sections.join("\n\n"), question };
+}
+
+/**
+ * agy 1.4.2 silently cuts a stream-json user message at about 68k tokens,
+ * keeping the head: a long paper loses its end and the question after it.
+ * Prompts longer than this many characters (a CJK-heavy text can approach
+ * a token per character) send their context as a file agy reads instead.
+ */
+export const AGY_INLINE_PROMPT_LIMIT = 50_000;
+
+/** The inline message for a turn whose context is in `contextPath`. */
+export function buildAgyFileContextPrompt(params: {
+  question: string;
+  contextPath: string;
+  contextChars: number;
+}): string {
+  return [
+    `<question>\n${params.question}\n</question>`,
+    [
+      "The instructions, paper text and earlier conversation for this question are too long to send inline, so they are in this file:",
+      params.contextPath,
+      `Read the whole file (${params.contextChars} characters, in parts if needed) with your file-reading tool before you answer. It is part of this message: follow its instructions and use its text, but do not edit it.`,
+    ].join("\n"),
+  ].join("\n\n");
 }
 
 /** A stable fingerprint of the system context, to resend it only on change. */

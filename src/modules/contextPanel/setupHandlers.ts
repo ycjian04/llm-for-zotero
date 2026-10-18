@@ -5313,6 +5313,17 @@ export function setupHandlers(
             }
           : null;
       }
+      if (isAntigravityConversationSystem()) {
+        // agy reports the Gemini and the Claude/GPT allowances apart; the
+        // model decides which one the headline shows.
+        return {
+          kind: "antigravity",
+          binaryPath: getAntigravityBinaryPathPref(),
+          model:
+            getSelectedModelInfo().selectedEntry?.model ||
+            getAntigravityRuntimeModelPref(),
+        };
+      }
       return resolveQuotaTarget(getSelectedModelInfo().selectedEntry);
     },
     read: readFooterQuota,

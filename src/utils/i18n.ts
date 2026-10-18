@@ -106,6 +106,11 @@ const zhCN: Record<string, string> = {
   "Kimi Code quota": "Kimi Code 额度",
   "MiniMax Token Plan quota": "MiniMax Token Plan 额度",
   "OpenCode Go quota": "OpenCode Go 额度",
+  "Antigravity quota": "Antigravity 额度",
+  "Gemini Models": "Gemini 模型",
+  "Claude and GPT models": "Claude 和 GPT 模型",
+  "Shows the most-used window for the selected model":
+    "显示当前模型使用比例最高的额度周期",
   "Rolling window": "滚动周期",
   Weekly: "每周",
   Monthly: "每月",

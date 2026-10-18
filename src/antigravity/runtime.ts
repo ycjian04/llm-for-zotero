@@ -6,11 +6,14 @@ import {
   upsertAntigravityConversationSummary,
 } from "./store";
 import {
+  AGY_INLINE_PROMPT_LIMIT,
   AgyTextAccumulator,
-  buildAgyPrompt,
+  buildAgyFileContextPrompt,
   fingerprintSystemContext,
+  splitAgyPrompt,
   toUsageStats,
 } from "./agyStream";
+import { ensureDir, removePathQuietly, writeFileBytes } from "../utils/geckoFs";
 import { runAgyTurn, type AgyTurnOptions } from "./agyProcess";
 import { toAntigravityModelPref } from "./modelCatalog";
 import {
@@ -94,6 +97,47 @@ function formatToolStatus(toolName: string, summary?: string): string {
   return summary ? `Antigravity: ${summary}` : `Antigravity: using ${label}`;
 }
 
+/** A file holding a turn's context for agy to read, and its folder. */
+export type AgyContextFile = { path: string; dir: string };
+
+function joinLocalPath(...parts: string[]): string {
+  const pathUtils = (
+    globalThis as { PathUtils?: { join?: (...parts: string[]) => string } }
+  ).PathUtils;
+  return pathUtils?.join
+    ? pathUtils.join(...parts)
+    : parts.join("/").replace(/\/+/g, "/");
+}
+
+/**
+ * Writes the context into its own folder under Zotero's temp directory, so
+ * `--add-dir` opens that one file to agy and nothing else.
+ */
+async function writeAgyContextFile(
+  text: string,
+): Promise<AgyContextFile | null> {
+  const temp = (
+    globalThis as { Zotero?: { getTempDirectory?: () => { path?: string } } }
+  ).Zotero?.getTempDirectory?.()?.path?.trim();
+  if (!temp) return null;
+  const dir = joinLocalPath(
+    temp,
+    `llm-for-zotero-agy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+  const path = joinLocalPath(dir, "context.md");
+  try {
+    if (!(await ensureDir(dir))) return null;
+    if (!(await writeFileBytes(path, new TextEncoder().encode(text)))) {
+      await removePathQuietly(dir);
+      return null;
+    }
+  } catch {
+    await removePathQuietly(dir);
+    return null;
+  }
+  return { path, dir };
+}
+
 export type AntigravityTurnDeps = {
   runTurn: (options: AgyTurnOptions) => ReturnType<typeof runAgyTurn>;
   getStoredConversationId: (conversationKey: number) => Promise<string>;
@@ -101,6 +145,8 @@ export type AntigravityTurnDeps = {
     conversationKey: number,
     conversationId: string,
   ) => Promise<void>;
+  writeContextFile: (text: string) => Promise<AgyContextFile | null>;
+  removeContextFile: (file: AgyContextFile) => Promise<void>;
   readSettings: () => {
     binaryPath: string;
     model: string;
@@ -117,6 +163,8 @@ const DEFAULT_TURN_DEPS: AntigravityTurnDeps = {
       await getAntigravityConversationSummary(conversationKey)
     )?.providerSessionId?.trim() || "",
   rememberConversationId,
+  writeContextFile: writeAgyContextFile,
+  removeContextFile: (file) => removePathQuietly(file.dir),
   readSettings: () => ({
     binaryPath: getAntigravityBinaryPathPref(),
     model: getAntigravityRuntimeModelPref(),
@@ -143,39 +191,69 @@ export async function runAntigravityPanelTurn(
     !resumed ||
     sentSystemContextByConversation.get(turn.conversationKey) !==
       contextFingerprint;
-  const prompt = buildAgyPrompt({
+  const { context, question } = splitAgyPrompt({
     messages: turn.messages,
     resumed,
     includeSystem,
   });
+  const inlinePrompt = context
+    ? `${context}\n\n<question>\n${question}\n</question>`
+    : question;
+  // agy cuts a long inline message and keeps its head, so a long paper
+  // goes in as a file agy reads in full. Should the file not be written,
+  // the question leads, and a cut loses only the end of the context.
+  let contextFile: AgyContextFile | null = null;
+  let prompt = inlinePrompt;
+  if (inlinePrompt.length > AGY_INLINE_PROMPT_LIMIT) {
+    const fileText =
+      question.length > AGY_INLINE_PROMPT_LIMIT / 2
+        ? `${context}\n\n<question>\n${question}\n</question>`
+        : context;
+    contextFile = await deps.writeContextFile(fileText);
+    prompt = contextFile
+      ? buildAgyFileContextPrompt({
+          question:
+            fileText === context
+              ? question
+              : "The question is at the end of the file below.",
+          contextPath: contextFile.path,
+          contextChars: fileText.length,
+        })
+      : `<question>\n${question}\n</question>\n\n${context}`;
+  }
 
   const { permissionMode, effort } = settings;
   const accumulator = new AgyTextAccumulator();
   panel.onStatus("Antigravity is thinking");
-  const result = await deps.runTurn({
-    binaryPath: settings.binaryPath,
-    prompt,
-    model: toAntigravityModelPref(turn.model ?? settings.model) || undefined,
-    effort: effort === "auto" ? undefined : effort,
-    mode: permissionMode === "plan" ? "plan" : undefined,
-    skipPermissions: permissionMode === "full",
-    conversationId: storedConversationId || undefined,
-    cwd: settings.cwd,
-    signal: turn.signal,
-    onEvent: (event) => {
-      if (!panel.isLive()) return;
-      if (event.kind === "text") {
-        const delta = accumulator.push(
-          event.stepIndex,
-          event.delta,
-          event.state,
-        );
-        if (delta) panel.onDelta(delta);
-      } else if (event.kind === "tool" && event.state !== "DONE") {
-        panel.onStatus(formatToolStatus(event.toolName, event.summary));
-      }
-    },
-  });
+  const result = await deps
+    .runTurn({
+      binaryPath: settings.binaryPath,
+      prompt,
+      ...(contextFile ? { addDirs: [contextFile.dir] } : {}),
+      model: toAntigravityModelPref(turn.model ?? settings.model) || undefined,
+      effort: effort === "auto" ? undefined : effort,
+      mode: permissionMode === "plan" ? "plan" : undefined,
+      skipPermissions: permissionMode === "full",
+      conversationId: storedConversationId || undefined,
+      cwd: settings.cwd,
+      signal: turn.signal,
+      onEvent: (event) => {
+        if (!panel.isLive()) return;
+        if (event.kind === "text") {
+          const delta = accumulator.push(
+            event.stepIndex,
+            event.delta,
+            event.state,
+          );
+          if (delta) panel.onDelta(delta);
+        } else if (event.kind === "tool" && event.state !== "DONE") {
+          panel.onStatus(formatToolStatus(event.toolName, event.summary));
+        }
+      },
+    })
+    .finally(() =>
+      contextFile ? deps.removeContextFile(contextFile) : undefined,
+    );
 
   sentSystemContextByConversation.set(turn.conversationKey, contextFingerprint);
   const conversationId = result.conversationId || storedConversationId;
