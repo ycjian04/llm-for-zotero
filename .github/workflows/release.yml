@@ -1,9 +1,17 @@
 name: Release Plugin
 
+# A version bump in package.json on the Antigravity branch publishes that
+# version: the workflow creates the v<version> tag and release itself, so a
+# release needs nothing but the pushed commit. A pushed v* tag still works
+# and rebuilds that release.
 on:
   push:
     tags:
       - "v*"
+    branches:
+      - "feat/antigravity-cli"
+    paths:
+      - "package.json"
 
 permissions:
   contents: write
@@ -21,16 +29,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A branch push publishes only a version that has no release yet, so a
+      # package.json edit that leaves the version alone does nothing.
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+            publish=true
+          else
+            tag="v$(node -p 'require("./package.json").version')"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "$tag is already released; nothing to publish."
+              publish=false
+            else
+              publish=true
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node
+        if: steps.version.outputs.publish == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: "npm"
 
       - name: Install deps
+        if: steps.version.outputs.publish == 'true'
         run: npm ci
 
       - name: Build
+        if: steps.version.outputs.publish == 'true'
         run: npm run build
 
       # `zotero-plugin release` builds its changelog from `git log` since the
@@ -38,9 +71,10 @@ jobs:
       # spans the whole history and overflows execSync (ENOBUFS). Publish the
       # two releases Zotero's updater reads with gh instead.
       - name: Publish release assets
+        if: steps.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" .scaffold/build/llm-for-zotero.xpi --clobber
