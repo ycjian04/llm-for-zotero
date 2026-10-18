@@ -311,7 +311,16 @@ export async function runAgyTurn(
     if (!firstEventSeen) void closeStdin();
   }, AGY_STDIN_EOF_FALLBACK_MS);
   try {
-    await proc.stdin.write(encodeAgyUserEvent(options.prompt));
+    // agy may exit before it reads the input (a flag it rejects, an input
+    // line it cannot take). The write then fails with "File closed"; keep
+    // reading so the error agy printed is what the user sees.
+    let writeError: unknown = null;
+    try {
+      await proc.stdin.write(encodeAgyUserEvent(options.prompt));
+    } catch (error) {
+      writeError = error;
+      stdinClosed = true;
+    }
     let buffer = "";
     let result: AgyTurnResult | null = null;
     while (!result) {
@@ -351,11 +360,17 @@ export async function runAgyTurn(
         isAgyAuthenticationFailure(message),
       );
     }
+    const writeFailure = writeError
+      ? ` (agy stopped reading its input: ${
+          writeError instanceof Error ? writeError.message : String(writeError)
+        })`
+      : "";
     const message =
       describeAgyFailure(stderr) ||
-      `agy exited with code ${String(exit?.exitCode ?? "unknown")}`;
+      `agy exited with code ${String(exit?.exitCode ?? "unknown")}${writeFailure}`;
     appLogger.warn("Antigravity CLI turn ended without a result", {
       exitCode: exit?.exitCode,
+      writeError,
       stderr: stderr.slice(-2000),
     });
     throw new AgyTurnError(
