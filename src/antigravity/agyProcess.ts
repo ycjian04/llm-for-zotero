@@ -236,21 +236,19 @@ function createAbortError(): Error {
   return error;
 }
 
+const AGY_STDIN_EOF_FALLBACK_MS = 15_000;
+const AGY_MODEL_LIST_TIMEOUT_MS = 30_000;
+
 export async function runAgyTurn(
   options: AgyTurnOptions,
 ): Promise<AgyTurnResult> {
   if (options.signal?.aborted) throw createAbortError();
   const Subprocess = await CodexAppServerProcess.loadSubprocessModule();
   const binary = await resolveAgyBinary(options.binaryPath);
-  const args = buildAgyArguments(options);
-  const isWindowsShim =
-    getRuntimePlatformInfo().platform === "windows" &&
-    !/\.(exe|com)$/i.test(binary);
-  const info = getRuntimePlatformInfo();
-  const command = isWindowsShim ? info.shellPath : binary;
-  const commandArgs = isWindowsShim
-    ? ["/d", "/s", "/c", [binary, ...args].map(quoteWindowsArg).join(" ")]
-    : args;
+  const { command, commandArgs } = buildAgyCommand(
+    binary,
+    buildAgyArguments(options),
+  );
 
   let proc: any;
   try {
@@ -303,6 +301,13 @@ export async function runAgyTurn(
     }
   })();
 
+  // agy reads stream-json input line by line, so stdin stays open until the
+  // turn's result. Should a build wait for end of input instead, nothing
+  // would ever arrive: after a quiet spell stdin is closed so it can start.
+  let firstEventSeen = false;
+  const eofFallback = setTimeout(() => {
+    if (!firstEventSeen) void closeStdin();
+  }, AGY_STDIN_EOF_FALLBACK_MS);
   try {
     await proc.stdin.write(encodeAgyUserEvent(options.prompt));
     let buffer = "";
@@ -321,6 +326,7 @@ export async function runAgyTurn(
       for (const line of lines) {
         const event = parseAgyStreamLine(line);
         if (!event) continue;
+        firstEventSeen = true;
         options.onEvent(event);
         if (event.kind === "result") {
           result = event;
@@ -357,9 +363,31 @@ export async function runAgyTurn(
       isAgyAuthenticationFailure(message),
     );
   } finally {
+    clearTimeout(eofFallback);
     options.signal?.removeEventListener("abort", onAbort);
     await closeStdin();
   }
+}
+
+/** A Windows `.cmd`/`.ps1` shim cannot be spawned directly; run it via cmd. */
+function buildAgyCommand(
+  binary: string,
+  args: string[],
+): { command: string; commandArgs: string[] } {
+  const info = getRuntimePlatformInfo();
+  const isWindowsShim =
+    info.platform === "windows" && !/\.(exe|com)$/i.test(binary);
+  return isWindowsShim
+    ? {
+        command: info.shellPath,
+        commandArgs: [
+          "/d",
+          "/s",
+          "/c",
+          [binary, ...args].map(quoteWindowsArg).join(" "),
+        ],
+      }
+    : { command: binary, commandArgs: args };
 }
 
 function quoteWindowsArg(value: string): string {
@@ -370,20 +398,46 @@ function quoteWindowsArg(value: string): string {
 export async function listAgyModels(binaryPath?: string): Promise<string[]> {
   const Subprocess = await CodexAppServerProcess.loadSubprocessModule();
   const binary = await resolveAgyBinary(binaryPath);
+  const { command, commandArgs } = buildAgyCommand(binary, [
+    "models",
+    "--output-format",
+    "json",
+  ]);
   const proc = await Subprocess.call({
-    command: binary,
-    arguments: ["models", "--output-format", "json"],
+    command,
+    arguments: commandArgs,
     stderr: "pipe",
     environment: { PATH: buildLaunchPath(binary) },
     environmentAppend: true,
   });
+  // A CLI that is not signed in may wait for a browser sign-in; give up
+  // rather than leave the caller spinning.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try {
+      proc.kill?.();
+    } catch {
+      /* already exited */
+    }
+  }, AGY_MODEL_LIST_TIMEOUT_MS);
   let out = "";
-  while (true) {
-    const chunk = await proc.stdout?.readString?.();
-    if (!chunk) break;
-    out += chunk;
+  try {
+    while (true) {
+      const chunk = await proc.stdout?.readString?.();
+      if (!chunk) break;
+      out += chunk;
+    }
+    await proc.wait?.();
+  } finally {
+    clearTimeout(timer);
   }
-  await proc.wait?.();
+  if (timedOut) {
+    throw new AgyTurnError(
+      "agy models did not answer. Run `agy` once in a terminal and sign in with your Google account.",
+      true,
+    );
+  }
   return parseAgyModelList(out);
 }
 

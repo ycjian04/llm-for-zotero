@@ -1,0 +1,202 @@
+import { assert } from "chai";
+import {
+  forgetAntigravitySentContext,
+  runAntigravityPanelTurn,
+  type AntigravityTurnDeps,
+} from "../src/antigravity/runtime";
+import type { AgyEvent } from "../src/antigravity/agyStream";
+import type { AgyTurnOptions } from "../src/antigravity/agyProcess";
+import type { ChatMessage, UsageStats } from "../src/shared/llm";
+
+type Result = Extract<AgyEvent, { kind: "result" }>;
+
+function harness(params: {
+  stored?: string;
+  permissionMode?: "default" | "plan" | "full";
+  effort?: "auto" | "low" | "medium" | "high";
+  model?: string;
+  events?: AgyEvent[];
+  result?: Partial<Result>;
+}) {
+  const calls: AgyTurnOptions[] = [];
+  const remembered: Array<[number, string]> = [];
+  const deps: Partial<AntigravityTurnDeps> = {
+    getStoredConversationId: async () => params.stored || "",
+    rememberConversationId: async (key, id) => {
+      remembered.push([key, id]);
+    },
+    readSettings: () => ({
+      binaryPath: "/opt/agy",
+      model: params.model ?? "",
+      effort: params.effort ?? "auto",
+      permissionMode: params.permissionMode ?? "default",
+      cwd: "/tmp/skills",
+    }),
+    runTurn: async (options) => {
+      calls.push(options);
+      for (const event of params.events || []) options.onEvent(event);
+      return {
+        kind: "result",
+        conversationId: "agy-new",
+        status: "SUCCESS",
+        response: "",
+        deniedActions: [],
+        ...params.result,
+      };
+    },
+  };
+  return { calls, remembered, deps };
+}
+
+function panel() {
+  const deltas: string[] = [];
+  const statuses: string[] = [];
+  const usage: UsageStats[] = [];
+  return {
+    deltas,
+    statuses,
+    usage,
+    callbacks: {
+      isLive: () => true,
+      onDelta: (delta: string) => deltas.push(delta),
+      onStatus: (text: string) => statuses.push(text),
+      onUsage: (stats: UsageStats) => usage.push(stats),
+    },
+  };
+}
+
+const messages: ChatMessage[] = [
+  { role: "system", content: "Paper text" },
+  { role: "user", content: "First?" },
+  { role: "assistant", content: "One." },
+  { role: "user", content: "Second?" },
+];
+
+describe("Antigravity panel turn", function () {
+  afterEach(function () {
+    forgetAntigravitySentContext(41);
+  });
+
+  it("starts a new agy conversation with everything and remembers its id", async function () {
+    const h = harness({
+      events: [
+        { kind: "text", stepIndex: 1, state: "ACTIVE", delta: "Two" },
+        {
+          kind: "tool",
+          stepIndex: 2,
+          toolName: "view_file",
+          state: "ACTIVE",
+        },
+        { kind: "text", stepIndex: 3, state: "ACTIVE", delta: "!" },
+      ],
+      result: {
+        usage: { input_tokens: 5, output_tokens: 2 },
+      },
+    });
+    const p = panel();
+    const outcome = await runAntigravityPanelTurn(
+      { conversationKey: 41, messages, model: "default" },
+      p.callbacks,
+      h.deps,
+    );
+    assert.lengthOf(h.calls, 1);
+    const call = h.calls[0];
+    assert.isUndefined(call.conversationId);
+    assert.isUndefined(call.model, "the default entry passes no --model");
+    assert.isUndefined(call.effort);
+    assert.isUndefined(call.mode);
+    assert.isFalse(call.skipPermissions);
+    assert.equal(call.binaryPath, "/opt/agy");
+    assert.equal(call.cwd, "/tmp/skills");
+    assert.include(call.prompt, "<instructions_and_context>");
+    assert.include(call.prompt, "<earlier_conversation>");
+    assert.deepEqual(p.deltas, ["Two", "\n\n!"]);
+    assert.include(p.statuses, "Antigravity: using view file");
+    assert.deepEqual(h.remembered, [[41, "agy-new"]]);
+    assert.equal(outcome.text, "Two\n\n!");
+    assert.deepEqual(p.usage, [
+      { promptTokens: 5, completionTokens: 2, totalTokens: 7 },
+    ]);
+  });
+
+  it("resumes the stored conversation and resends context only when it changed", async function () {
+    const first = harness({ stored: "agy-1", result: { response: "A" } });
+    await runAntigravityPanelTurn(
+      { conversationKey: 41, messages },
+      panel().callbacks,
+      first.deps,
+    );
+    assert.equal(first.calls[0].conversationId, "agy-1");
+    // First turn since start: the context is sent once.
+    assert.include(first.calls[0].prompt, "<updated_context>");
+    assert.notInclude(first.calls[0].prompt, "<earlier_conversation>");
+
+    const second = harness({
+      stored: "agy-1",
+      result: { conversationId: "agy-1", response: "B" },
+    });
+    const outcome = await runAntigravityPanelTurn(
+      { conversationKey: 41, messages },
+      panel().callbacks,
+      second.deps,
+    );
+    assert.equal(second.calls[0].prompt, "Second?");
+    assert.deepEqual(second.remembered, [], "the same id is not rewritten");
+    assert.equal(outcome.text, "B");
+  });
+
+  it("starts over on a retry even when a conversation is stored", async function () {
+    const h = harness({ stored: "agy-1", result: { response: "C" } });
+    await runAntigravityPanelTurn(
+      { conversationKey: 41, messages, freshConversation: true },
+      panel().callbacks,
+      h.deps,
+    );
+    assert.isUndefined(h.calls[0].conversationId);
+    assert.include(h.calls[0].prompt, "<earlier_conversation>");
+    assert.deepEqual(h.remembered, [[41, "agy-new"]]);
+  });
+
+  it("maps the permission mode and effort to agy flags and reports denied actions", async function () {
+    const plan = harness({ permissionMode: "plan", effort: "high" });
+    await runAntigravityPanelTurn(
+      { conversationKey: 41, messages, model: "gemini-x" },
+      panel().callbacks,
+      plan.deps,
+    );
+    assert.equal(plan.calls[0].mode, "plan");
+    assert.equal(plan.calls[0].effort, "high");
+    assert.equal(plan.calls[0].model, "gemini-x");
+
+    const full = harness({
+      permissionMode: "full",
+      result: { response: "Partial", deniedActions: ["run a command"] },
+    });
+    const outcome = await runAntigravityPanelTurn(
+      { conversationKey: 41, messages },
+      panel().callbacks,
+      full.deps,
+    );
+    assert.isTrue(full.calls[0].skipPermissions);
+    assert.include(outcome.text, "Partial");
+    assert.include(outcome.text, "not allowed to: run a command");
+  });
+
+  it("stops streaming to a panel that is no longer live", async function () {
+    const h = harness({
+      events: [{ kind: "text", stepIndex: 1, state: "ACTIVE", delta: "x" }],
+      result: { response: "x" },
+    });
+    const deltas: string[] = [];
+    await runAntigravityPanelTurn(
+      { conversationKey: 41, messages },
+      {
+        isLive: () => false,
+        onDelta: (delta) => deltas.push(delta),
+        onStatus: () => undefined,
+      },
+      h.deps,
+    );
+    assert.deepEqual(deltas, []);
+  });
+});
