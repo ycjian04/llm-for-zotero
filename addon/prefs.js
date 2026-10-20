@@ -60,6 +60,10 @@ pref("codexAppServerLastAllocatedPaperConversationKey", 0);
 // Antigravity CLI (`agy`) as a standalone conversation runtime. Signs in with
 // the user's own Google account through agy; the plugin never reads tokens.
 pref("enableAntigravityMode", false);
+pref("cliProxyMode", "system");
+pref("cliProxyProtocol", "http");
+pref("cliProxyHost", "");
+pref("cliProxyPort", "");
 pref("antigravityPath", "");
 pref("antigravityModel", "");
 pref("antigravityEffort", "auto");

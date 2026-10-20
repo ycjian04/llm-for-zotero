@@ -2,6 +2,7 @@ import { CodexAppServerProcess } from "../utils/codexAppServerProcess";
 import { pathExists } from "../utils/geckoFs";
 import { getRuntimePlatformInfo } from "../utils/runtimePlatform";
 import { appLogger } from "../core/logging";
+import { getCliProxyOverride, parseScutilProxy } from "../utils/cliProxy";
 import {
   describeAgyFailure,
   encodeAgyUserEvent,
@@ -238,52 +239,6 @@ const PROXY_ENV_KEYS = [
   "all_proxy",
 ];
 
-/**
- * The proxy macOS is set to use, from `scutil --proxy`. agy is a Go binary:
- * it reads only the *_PROXY variables, never the system proxy that Codex and
- * the browser follow, and Zotero opened from the Dock has no such variables.
- * So a proxy such as Clash in system-proxy mode is invisible to agy unless it
- * is handed over here.
- */
-export function parseScutilProxy(raw: string): Record<string, string> {
-  const fields = new Map<string, string>();
-  for (const line of raw.split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Za-z]+)\s*:\s*(\S+)\s*$/);
-    if (match) fields.set(match[1]!, match[2]!);
-  }
-  const endpoint = (kind: "HTTPS" | "HTTP" | "SOCKS") => {
-    if (fields.get(`${kind}Enable`) !== "1") return "";
-    const host = fields.get(`${kind}Proxy`);
-    const port = fields.get(`${kind}Port`);
-    return host && port ? `${host}:${port}` : "";
-  };
-  const https = endpoint("HTTPS");
-  const http = endpoint("HTTP");
-  const socks = endpoint("SOCKS");
-  const httpsProxy = https
-    ? `http://${https}`
-    : http
-      ? `http://${http}`
-      : socks
-        ? `socks5://${socks}`
-        : "";
-  if (!httpsProxy) return {};
-  const httpProxy = http ? `http://${http}` : httpsProxy;
-  const env: Record<string, string> = {
-    HTTPS_PROXY: httpsProxy,
-    https_proxy: httpsProxy,
-    HTTP_PROXY: httpProxy,
-    http_proxy: httpProxy,
-    NO_PROXY: "localhost,127.0.0.1,::1",
-    no_proxy: "localhost,127.0.0.1,::1",
-  };
-  if (socks) {
-    env.ALL_PROXY = `socks5://${socks}`;
-    env.all_proxy = `socks5://${socks}`;
-  }
-  return env;
-}
-
 let systemProxyCache: { at: number; env: Record<string, string> } | null = null;
 
 async function readMacSystemProxy(): Promise<Record<string, string>> {
@@ -312,11 +267,18 @@ async function readMacSystemProxy(): Promise<Record<string, string>> {
   return env;
 }
 
-/** PATH, plus the system proxy when Zotero itself was given none. */
+/**
+ * PATH plus the proxy from Settings. In "system" mode agy, a Go binary that
+ * reads only the *_PROXY variables and never the macOS system proxy, is given
+ * that system proxy when Zotero itself (opened from the Dock) has none: with
+ * Clash in system-proxy mode it could not reach Google otherwise.
+ */
 async function buildAgyLaunchEnvironment(
   binary: string,
 ): Promise<Record<string, string>> {
   const env: Record<string, string> = { PATH: buildLaunchPath(binary) };
+  const override = getCliProxyOverride();
+  if (override) return Object.assign(env, override);
   const hasProxy = PROXY_ENV_KEYS.some((key) => getRuntimeEnvValue(key));
   if (!hasProxy && getRuntimePlatformInfo().platform === "macos") {
     Object.assign(env, await readMacSystemProxy());
@@ -615,6 +577,22 @@ export async function listAgyModels(binaryPath?: string): Promise<AgyModel[]> {
   }
   if (failure) throw new AgyTurnError(`agy models: ${failure}`, false);
   return [];
+}
+
+/**
+ * The account's quota as `agy -p /usage --output-format json` prints it.
+ * agy answers that command itself: no model turn runs and no quota is used.
+ */
+export async function readAgyUsage(binaryPath?: string): Promise<string> {
+  const binary = await resolveAgyBinary(binaryPath);
+  const run = await captureAgy(binary, [
+    "-p",
+    "/usage",
+    "--output-format",
+    "json",
+  ]);
+  if (run.timedOut) throw new AgyTurnError("agy /usage did not answer.", true);
+  return run.stdout;
 }
 
 /** One model `agy models` lists: the slug `--model` takes and its name. */

@@ -106,6 +106,11 @@ const zhCN: Record<string, string> = {
   "Kimi Code quota": "Kimi Code 额度",
   "MiniMax Token Plan quota": "MiniMax Token Plan 额度",
   "OpenCode Go quota": "OpenCode Go 额度",
+  "Antigravity quota": "Antigravity 额度",
+  "Gemini Models": "Gemini 模型",
+  "Claude and GPT models": "Claude 和 GPT 模型",
+  "Shows the most-used window for the selected model":
+    "显示当前模型使用比例最高的额度周期",
   "Rolling window": "滚动周期",
   Weekly: "每周",
   Monthly: "每月",
@@ -1157,6 +1162,22 @@ const zhCN: Record<string, string> = {
     "Antigravity 未返回任何模型；agy 将使用默认模型。",
   "Retry loading Antigravity models": "重试加载 Antigravity 模型",
   "Antigravity models loaded": "已加载 Antigravity 模型",
+  // ── Agent tab: network proxy for Codex and Antigravity ──
+  "Network proxy": "网络代理",
+  "The proxy used by Codex and Antigravity, which run as programs on this computer. Model APIs called with an API key follow Zotero's own network settings, and the Claude Code bridge uses the environment it was started in.":
+    "Codex 和 Antigravity 是在本机运行的程序，这里设置它们使用的代理。用 API Key 调用的模型走 Zotero 自己的网络设置，Claude Code 桥接服务使用它启动时的环境。",
+  Proxy: "代理",
+  "Use system proxy": "使用系统代理",
+  "Manual proxy": "手动设置代理",
+  "No proxy": "不使用代理",
+  Address: "地址",
+  Port: "端口",
+  "Applies to the next message. A running Codex session picks it up after Zotero restarts.":
+    "从下一条消息开始生效。已在运行的 Codex 需要重启 Zotero 后才会使用新设置。",
+  "Codex and Antigravity will use": "Codex 和 Antigravity 将使用",
+  "Enter an address and a port between 1 and 65535.":
+    "请填写地址，以及 1 到 65535 之间的端口。",
+  "Manual proxy incomplete": "手动代理未填写完整",
   "agy returned no models. Use the default, or choose Customized and type a model name.":
     "agy 未返回模型。可使用默认模型，或选择「自定义」手动填写模型名。",
   "Could not load Antigravity models": "无法加载 Antigravity 模型",

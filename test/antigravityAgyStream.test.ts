@@ -13,8 +13,8 @@ import {
   buildAgyArguments,
   listAgyBinaryCandidates,
   parseAgyModelList,
-  parseScutilProxy,
 } from "../src/antigravity/agyProcess";
+import { parseScutilProxy } from "../src/utils/cliProxy";
 import {
   ANTIGRAVITY_DEFAULT_MODEL_ID,
   buildAntigravityRuntimeModelEntries,

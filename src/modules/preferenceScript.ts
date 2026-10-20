@@ -292,6 +292,15 @@ import {
   type AgyModel,
 } from "../antigravity/agyProcess";
 import {
+  CLI_PROXY_MODES,
+  CLI_PROXY_PROTOCOLS,
+  formatManualProxyUrl,
+  getCliProxySettings,
+  setCliProxySettings,
+  type CliProxyMode,
+  type CliProxyProtocol,
+} from "../utils/cliProxy";
+import {
   ANTIGRAVITY_EFFORT_OPTIONS,
   type AntigravityEffortMode,
 } from "../antigravity/constants";
@@ -4017,6 +4026,15 @@ export async function registerPrefsScripts(_window: Window | undefined | null) {
           ]
         : [t("Off")],
     );
+    const proxy = getCliProxySettings();
+    const manualProxy = formatManualProxyUrl(proxy);
+    setAgentRowSummary(
+      "proxy",
+      proxy.mode !== "none",
+      proxy.mode === "manual"
+        ? [manualProxy || t("Manual proxy incomplete")]
+        : [proxy.mode === "none" ? t("No proxy") : t("Use system proxy")],
+    );
     const notesPath = inputValue("obsidian-vault-path");
     setAgentRowSummary(
       "notes",
@@ -4081,6 +4099,7 @@ export async function registerPrefsScripts(_window: Window | undefined | null) {
   }
 
   bindAntigravityPreferences(doc);
+  bindCliProxyPreferences(doc);
 
   let codexReasoningCatalogRefreshId = 0;
   // The Codex CLI is the only authority on which models it accepts, so the
@@ -6356,4 +6375,60 @@ function bindAntigravityPreferences(doc: Document): void {
       notifySummary(modelSelect);
     }
   });
+}
+
+function bindCliProxyPreferences(doc: Document): void {
+  const byId = <T extends Element>(suffix: string) =>
+    doc.querySelector(`#${config.addonRef}-cli-proxy-${suffix}`) as T | null;
+  const modeSelect = byId<HTMLSelectElement>("mode");
+  const manualWrap = byId<HTMLDivElement>("manual");
+  const protocolSelect = byId<HTMLSelectElement>("protocol");
+  const hostInput = byId<HTMLInputElement>("host");
+  const portInput = byId<HTMLInputElement>("port");
+  const status = byId<HTMLSpanElement>("status");
+  if (!modeSelect) return;
+
+  const settings = getCliProxySettings();
+  modeSelect.value = settings.mode;
+  if (protocolSelect) protocolSelect.value = settings.protocol;
+  if (hostInput) hostInput.value = settings.host;
+  if (portInput) portInput.value = settings.port;
+
+  const render = () => {
+    const current = getCliProxySettings();
+    if (manualWrap) manualWrap.hidden = current.mode !== "manual";
+    if (!status) return;
+    const url = formatManualProxyUrl(current);
+    status.textContent =
+      current.mode !== "manual"
+        ? ""
+        : url
+          ? `${t("Codex and Antigravity will use")} ${url}`
+          : t("Enter an address and a port between 1 and 65535.");
+  };
+
+  modeSelect.addEventListener("change", () => {
+    const mode = modeSelect.value as CliProxyMode;
+    setCliProxySettings({
+      mode: CLI_PROXY_MODES.includes(mode) ? mode : "system",
+    });
+    render();
+  });
+  protocolSelect?.addEventListener("change", () => {
+    const protocol = protocolSelect.value as CliProxyProtocol;
+    setCliProxySettings({
+      protocol: CLI_PROXY_PROTOCOLS.includes(protocol) ? protocol : "http",
+    });
+    render();
+  });
+  for (const [input, key] of [
+    [hostInput, "host"],
+    [portInput, "port"],
+  ] as const) {
+    input?.addEventListener("input", () => {
+      setCliProxySettings({ [key]: input.value.trim() });
+      render();
+    });
+  }
+  render();
 }
