@@ -56,12 +56,29 @@ export type AntigravityPanelTurn = {
   freshConversation?: boolean;
 };
 
+/** One tool step of an agy turn, as the panel's activity trace shows it. */
+export type AntigravityActivity = {
+  stepIndex: number;
+  toolName: string;
+  summary?: string;
+  phase: "started" | "completed";
+  failed: boolean;
+};
+
 export type AntigravityPanelCallbacks = {
   isLive: () => boolean;
   onDelta: (delta: string) => void;
   onStatus: (text: string) => void;
   onUsage?: (usage: UsageStats) => void;
+  onActivity?: (activity: AntigravityActivity) => void;
 };
+
+/** A step's state once it stopped running: done, or failed some way. */
+function isFinishedStepState(state: string): boolean {
+  return /^(DONE|COMPLETED?|SUCCESS|ERROR|FAILED|CANCELL?ED|DENIED)$/i.test(
+    state,
+  );
+}
 
 async function rememberConversationId(
   conversationKey: number,
@@ -246,8 +263,19 @@ export async function runAntigravityPanelTurn(
             event.state,
           );
           if (delta) panel.onDelta(delta);
-        } else if (event.kind === "tool" && event.state !== "DONE") {
-          panel.onStatus(formatToolStatus(event.toolName, event.summary));
+        } else if (event.kind === "tool") {
+          const finished = isFinishedStepState(event.state);
+          if (!finished) {
+            panel.onStatus(formatToolStatus(event.toolName, event.summary));
+          }
+          panel.onActivity?.({
+            stepIndex: event.stepIndex,
+            toolName: event.toolName,
+            summary: event.summary,
+            phase: finished ? "completed" : "started",
+            failed:
+              finished && !/^(DONE|COMPLETED?|SUCCESS)$/i.test(event.state),
+          });
         }
       },
     })

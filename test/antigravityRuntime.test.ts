@@ -286,4 +286,60 @@ describe("Antigravity panel turn", function () {
     assert.match(String(error), /agy failed/);
     assert.deepEqual(removed, ["/t"]);
   });
+  it("reports every tool step to the activity trace, and only running ones as status", async function () {
+    const h = harness({
+      events: [
+        {
+          kind: "tool",
+          stepIndex: 2,
+          toolName: "view_file",
+          state: "ACTIVE",
+          summary: "Reading paper.md",
+        },
+        {
+          kind: "tool",
+          stepIndex: 2,
+          toolName: "view_file",
+          state: "DONE",
+          summary: "Reading paper.md",
+        },
+        { kind: "tool", stepIndex: 4, toolName: "run_command", state: "ERROR" },
+      ],
+      result: { response: "ok" },
+    });
+    const p = panel();
+    const activity: unknown[] = [];
+    await runAntigravityPanelTurn(
+      { conversationKey: 41, messages },
+      { ...p.callbacks, onActivity: (entry) => activity.push(entry) },
+      h.deps,
+    );
+    assert.deepEqual(activity, [
+      {
+        stepIndex: 2,
+        toolName: "view_file",
+        summary: "Reading paper.md",
+        phase: "started",
+        failed: false,
+      },
+      {
+        stepIndex: 2,
+        toolName: "view_file",
+        summary: "Reading paper.md",
+        phase: "completed",
+        failed: false,
+      },
+      {
+        stepIndex: 4,
+        toolName: "run_command",
+        summary: undefined,
+        phase: "completed",
+        failed: true,
+      },
+    ]);
+    assert.deepEqual(p.statuses, [
+      "Antigravity is thinking",
+      "Antigravity: Reading paper.md",
+    ]);
+  });
 });

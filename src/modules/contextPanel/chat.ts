@@ -53,6 +53,7 @@ import {
   forgetAntigravitySentContext,
   runAntigravityPanelTurn,
 } from "../../antigravity/runtime";
+import { toAntigravityTraceStep } from "./antigravityTrace";
 import {
   appendAntigravityMessage,
   clearAntigravityConversationSessionMetadata,
@@ -6155,7 +6156,8 @@ export async function retryLatestAssistantResponse(
     effectiveConversationSystem === "codex" &&
     effectiveRequestConfig.authMode === "codex_app_server";
   const isAntigravityTurn = effectiveConversationSystem === "antigravity";
-  assistantMessage.runMode = isCodexNativeTurn ? "agent" : "chat";
+  assistantMessage.runMode =
+    isCodexNativeTurn || isAntigravityTurn ? "agent" : "chat";
   assistantMessage.modelName = effectiveRequestConfig.model;
   assistantMessage.modelEntryId = effectiveRequestConfig.modelEntryId;
   assistantMessage.modelProviderLabel =
@@ -6299,6 +6301,7 @@ export async function retryLatestAssistantResponse(
     conversationGeneration,
     requestId: thisRequestId,
     isCodexNativeTurn,
+    isAntigravityTurn,
     usageRecorder,
     refreshMessage: () => refreshAssistantMessageSafely(assistantMessage),
     refreshChat: refreshChatSafely,
@@ -6714,6 +6717,10 @@ export async function retryLatestAssistantResponse(
             onDelta: assistantTurn.push,
             onStatus: (text) => setStatusSafely(text, "sending"),
             onUsage: handleUsage,
+            onActivity: (activity) =>
+              assistantTurn.codexTrace?.appendRuntimeToolStep(
+                toAntigravityTraceStep(activity),
+              ),
           },
         )
       : isCodexNativeTurn
@@ -9048,7 +9055,8 @@ export async function sendQuestion(
     conversationGeneration,
     ...optimisticAssistantMessage,
     timestamp: optimisticAssistantMessage.timestamp,
-    runMode: isCodexNativeTurn ? "agent" : effectiveRuntimeMode,
+    runMode:
+      isCodexNativeTurn || isAntigravityTurn ? "agent" : effectiveRuntimeMode,
     agentRunId: agentRunId || undefined,
     modelName: effectiveRequestConfig.model,
     modelEntryId: effectiveRequestConfig.modelEntryId,
@@ -9095,6 +9103,7 @@ export async function sendQuestion(
     conversationGeneration,
     requestId: thisRequestId,
     isCodexNativeTurn,
+    isAntigravityTurn,
     usageRecorder,
     refreshMessage: () => refreshAssistantMessageSafely(assistantMessage),
     refreshChat: refreshChatSafely,
@@ -9572,6 +9581,10 @@ export async function sendQuestion(
             onDelta: assistantTurn.push,
             onStatus: (text) => setStatusSafely(text, "sending"),
             onUsage: handleUsage,
+            onActivity: (activity) =>
+              assistantTurn.codexTrace?.appendRuntimeToolStep(
+                toAntigravityTraceStep(activity),
+              ),
           },
         )
       : isCodexNativeTurn
