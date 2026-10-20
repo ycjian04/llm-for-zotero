@@ -30,6 +30,8 @@ export type AgyTurnOptions = {
   mode?: "plan";
   skipPermissions?: boolean;
   conversationId?: string;
+  /** Folders agy may read besides its workspace (`--add-dir`). */
+  addDirs?: string[];
   cwd?: string;
   signal?: AbortSignal;
   onEvent: (event: AgyEvent) => void;
@@ -171,7 +173,12 @@ export async function resolveAgyBinary(explicitPath?: string): Promise<string> {
 export function buildAgyArguments(
   options: Pick<
     AgyTurnOptions,
-    "model" | "effort" | "mode" | "skipPermissions" | "conversationId"
+    | "model"
+    | "effort"
+    | "mode"
+    | "skipPermissions"
+    | "conversationId"
+    | "addDirs"
   >,
 ): string[] {
   // --print always takes a value: a bare one swallows the next flag as its
@@ -191,6 +198,9 @@ export function buildAgyArguments(
   if (options.skipPermissions) args.push("--dangerously-skip-permissions");
   if (options.conversationId?.trim()) {
     args.push("--conversation", options.conversationId.trim());
+  }
+  for (const dir of options.addDirs ?? []) {
+    if (dir.trim()) args.push("--add-dir", dir.trim());
   }
   return args;
 }
@@ -336,6 +346,37 @@ function createAbortError(): Error {
 
 const AGY_STDIN_EOF_FALLBACK_MS = 15_000;
 const AGY_MODEL_LIST_TIMEOUT_MS = 30_000;
+const AGY_EXIT_WAIT_MS = 3_000;
+/** How long Subprocess waits after SIGTERM before it sends SIGKILL. */
+const AGY_KILL_GRACE_MS = 300;
+
+function killAgy(proc: any): void {
+  try {
+    const killed = proc?.kill?.(AGY_KILL_GRACE_MS);
+    killed?.catch?.(() => undefined);
+  } catch {
+    /* already exited */
+  }
+}
+
+/** The promise's value, or undefined once `ms` pass or it rejects. */
+async function settleWithin<T>(
+  promise: Promise<T> | undefined,
+  ms: number,
+): Promise<T | undefined> {
+  if (!promise) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export async function runAgyTurn(
   options: AgyTurnOptions,
@@ -377,13 +418,7 @@ export async function runAgyTurn(
       /* already closed */
     }
   };
-  const onAbort = () => {
-    try {
-      proc.kill?.();
-    } catch {
-      /* already exited */
-    }
-  };
+  const onAbort = () => killAgy(proc);
   options.signal?.addEventListener("abort", onAbort, { once: true });
 
   const stderrLoop = (async () => {
@@ -442,8 +477,19 @@ export async function runAgyTurn(
       }
     }
     await closeStdin();
-    const exit = await proc.wait?.().catch(() => undefined);
-    await stderrLoop;
+    // agy 1.4.2 keeps running once the result is out, even at end of input,
+    // and ignores SIGTERM, so the turn ends it. When stdout closed without a
+    // result agy is already exiting; give it a moment to report its code.
+    if (result) killAgy(proc);
+    let exit = await settleWithin<{ exitCode?: number }>(
+      proc.wait?.(),
+      AGY_EXIT_WAIT_MS,
+    );
+    if (!exit) {
+      killAgy(proc);
+      exit = await settleWithin(proc.wait?.(), AGY_EXIT_WAIT_MS);
+    }
+    await settleWithin(stderrLoop, AGY_EXIT_WAIT_MS);
     if (options.signal?.aborted) throw createAbortError();
     if (result) {
       if (/^(SUCCESS|OK|COMPLETED?)$/i.test(result.status) || result.response) {
@@ -479,6 +525,7 @@ export async function runAgyTurn(
     clearTimeout(eofFallback);
     options.signal?.removeEventListener("abort", onAbort);
     await closeStdin();
+    killAgy(proc);
   }
 }
 
@@ -524,11 +571,7 @@ async function captureAgy(binary: string, args: string[]): Promise<AgyCapture> {
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    try {
-      proc.kill?.();
-    } catch {
-      /* already exited */
-    }
+    killAgy(proc);
   }, AGY_MODEL_LIST_TIMEOUT_MS);
   const drain = async (pipe: typeof proc.stdout) => {
     let text = "";
@@ -544,7 +587,7 @@ async function captureAgy(binary: string, args: string[]): Promise<AgyCapture> {
       drain(proc.stdout),
       drain(proc.stderr),
     ]);
-    await proc.wait?.();
+    await settleWithin(proc.wait?.(), AGY_EXIT_WAIT_MS);
     return { stdout, stderr, timedOut };
   } finally {
     clearTimeout(timer);

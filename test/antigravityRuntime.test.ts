@@ -199,4 +199,91 @@ describe("Antigravity panel turn", function () {
     );
     assert.deepEqual(deltas, []);
   });
+  it("sends a long paper as a file agy reads, and removes the file after the turn", async function () {
+    const h = harness({ result: { response: "ok" } });
+    const written: string[] = [];
+    const removed: string[] = [];
+    h.deps.writeContextFile = async (text) => {
+      written.push(text);
+      return { path: "/tmp/agy-ctx/context.md", dir: "/tmp/agy-ctx" };
+    };
+    h.deps.removeContextFile = async (file) => {
+      removed.push(file.dir);
+    };
+    const paper = `BEGIN ${"x".repeat(80_000)} END-CANARY`;
+    await runAntigravityPanelTurn(
+      {
+        conversationKey: 41,
+        messages: [
+          { role: "system", content: paper },
+          { role: "user", content: "What is at the end?" },
+        ],
+      },
+      panel().callbacks,
+      h.deps,
+    );
+    const call = h.calls[0];
+    assert.deepEqual(call.addDirs, ["/tmp/agy-ctx"]);
+    assert.isBelow(call.prompt.length, 2000);
+    assert.match(
+      call.prompt,
+      /^<question>\nWhat is at the end\?\n<\/question>/,
+    );
+    assert.include(call.prompt, "/tmp/agy-ctx/context.md");
+    assert.lengthOf(written, 1);
+    assert.include(written[0], "END-CANARY");
+    assert.notInclude(written[0], "<question>");
+    assert.deepEqual(removed, ["/tmp/agy-ctx"]);
+  });
+
+  it("leads with the question when the context file cannot be written", async function () {
+    const h = harness({ result: { response: "ok" } });
+    h.deps.writeContextFile = async () => null;
+    await runAntigravityPanelTurn(
+      {
+        conversationKey: 41,
+        messages: [
+          { role: "system", content: "y".repeat(80_000) },
+          { role: "user", content: "Q?" },
+        ],
+      },
+      panel().callbacks,
+      h.deps,
+    );
+    assert.isUndefined(h.calls[0].addDirs);
+    assert.match(
+      h.calls[0].prompt,
+      /^<question>\nQ\?\n<\/question>\n\n<instructions_and_context>/,
+    );
+  });
+
+  it("removes the context file even when the turn fails", async function () {
+    const h = harness({});
+    const removed: string[] = [];
+    h.deps.writeContextFile = async () => ({ path: "/t/c.md", dir: "/t" });
+    h.deps.removeContextFile = async (file) => {
+      removed.push(file.dir);
+    };
+    h.deps.runTurn = async () => {
+      throw new Error("agy failed");
+    };
+    let error: unknown;
+    try {
+      await runAntigravityPanelTurn(
+        {
+          conversationKey: 41,
+          messages: [
+            { role: "system", content: "z".repeat(80_000) },
+            { role: "user", content: "Q?" },
+          ],
+        },
+        panel().callbacks,
+        h.deps,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(String(error), /agy failed/);
+    assert.deepEqual(removed, ["/t"]);
+  });
 });
