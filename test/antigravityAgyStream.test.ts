@@ -209,6 +209,7 @@ describe("Antigravity agy process helpers", function () {
       "stream-json",
       "--output-format",
       "stream-json",
+      "--disable-slash-commands",
     ]);
     assert.deepEqual(
       buildAgyArguments({
@@ -217,7 +218,7 @@ describe("Antigravity agy process helpers", function () {
         mode: "plan",
         skipPermissions: true,
         conversationId: "c-9",
-      }).slice(5),
+      }).slice(6),
       [
         "--model",
         "gemini-x",
@@ -252,19 +253,42 @@ describe("Antigravity agy process helpers", function () {
   });
 
   it("parses agy models output in its JSON shapes", function () {
-    assert.deepEqual(parseAgyModelList('["a","b","a"]'), ["a", "b"]);
+    const ids = (raw: string) => parseAgyModelList(raw).map((m) => m.id);
+    assert.deepEqual(ids('["a","b","a"]'), ["a", "b"]);
     assert.deepEqual(
-      parseAgyModelList('{"models":[{"slug":"x"},{"id":"y"},{"name":"z"}]}'),
-      ["x", "y", "z"],
+      parseAgyModelList(
+        '{"models":[{"slug":"x","display_name":"X One"},{"id":"y"},{"name":"z"}]}',
+      ),
+      [
+        { id: "x", label: "X One" },
+        { id: "y", label: "y" },
+        { id: "z", label: "z" },
+      ],
     );
-    assert.deepEqual(parseAgyModelList('{"slug":"p"}\n{"slug":"q"}\n'), [
-      "p",
-      "q",
-    ]);
+    assert.deepEqual(ids('{"slug":"p"}\n{"slug":"q"}\n'), ["p", "q"]);
     assert.deepEqual(parseAgyModelList("not json"), []);
   });
 
-  it("falls back to the plain agy models listing", function () {
+  it("reads the plain agy models table agy 1.4.2 prints", function () {
+    assert.deepEqual(
+      parseAgyModelList(
+        [
+          "gemini-4-argon-medium     Gemini 4 Argon (Medium)",
+          "gemini-3.8-flash-high     Gemini 3.8 Flash (High)",
+          "claude-opus-5-5-low       Claude Opus 5.5 (Low)",
+          "gpt-oss-120b-medium       GPT-OSS 120B (Medium)",
+        ].join("\n"),
+      ),
+      [
+        { id: "gemini-4-argon-medium", label: "Gemini 4 Argon (Medium)" },
+        { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+        { id: "claude-opus-5-5-low", label: "Claude Opus 5.5 (Low)" },
+        { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+      ],
+    );
+  });
+
+  it("keeps only slug-shaped lines from other plain listings", function () {
     assert.deepEqual(
       parseAgyModelList(
         [
@@ -275,7 +299,7 @@ describe("Antigravity agy process helpers", function () {
           "  2) gemini-3-flash, Gemini 3 Flash",
           "Run agy --model <slug> to choose one.",
         ].join("\n"),
-      ),
+      ).map((model) => model.id),
       ["claude-sonnet-5-5", "gemini-3.5-pro", "gemini-3-flash"],
     );
   });
@@ -288,13 +312,17 @@ describe("Antigravity model menu", function () {
 
   it("offers the CLI default first and keeps a saved model the catalog dropped", function () {
     const entries = buildAntigravityRuntimeModelEntries({
-      models: ["gemini-a", "gemini-b"],
+      models: [
+        { id: "gemini-a", label: "Gemini A" },
+        { id: "gemini-b", label: "Gemini B" },
+      ],
       selectedModel: "gemini-old",
     });
     assert.deepEqual(
       entries.map((entry) => entry.model),
       [ANTIGRAVITY_DEFAULT_MODEL_ID, "gemini-old", "gemini-a", "gemini-b"],
     );
+    assert.equal(entries[2]!.displayModelLabel, "Gemini A");
     assert.isTrue(
       entries.every((entry) => entry.providerLabel === "Antigravity"),
     );
@@ -315,25 +343,29 @@ describe("Antigravity model menu", function () {
     let calls = 0;
     const ok = async () => {
       calls += 1;
-      return ["m1"];
+      return [{ id: "m1", label: "M1" }];
     };
-    assert.deepEqual(await loadAntigravityModelCatalog("", { list: ok }), [
-      "m1",
-    ]);
-    assert.deepEqual(await loadAntigravityModelCatalog("", { list: ok }), [
-      "m1",
-    ]);
+    assert.deepEqual(
+      (await loadAntigravityModelCatalog("", { list: ok })).map((m) => m.id),
+      ["m1"],
+    );
+    assert.deepEqual(
+      (await loadAntigravityModelCatalog("", { list: ok })).map((m) => m.id),
+      ["m1"],
+    );
     assert.equal(calls, 1);
-    const failing = async (): Promise<string[]> => {
+    const failing = async (): Promise<Array<{ id: string; label: string }>> => {
       throw new Error("agy not found");
     };
     assert.deepEqual(
-      await loadAntigravityModelCatalog("", { force: true, list: failing }),
+      (
+        await loadAntigravityModelCatalog("", { force: true, list: failing })
+      ).map((m) => m.id),
       ["m1"],
     );
     const snapshot = getAntigravityModelCatalogSnapshot();
     assert.equal(snapshot.status, "error");
     assert.equal(snapshot.error, "agy not found");
-    assert.deepEqual(snapshot.models, ["m1"]);
+    assert.deepEqual(snapshot.models, [{ id: "m1", label: "M1" }]);
   });
 });

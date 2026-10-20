@@ -1324,7 +1324,11 @@ export function setupHandlers(
     ANTIGRAVITY_EFFORT_OPTIONS.map((value) => ({
       value,
       label:
-        value === "auto" ? "Auto" : value[0]!.toUpperCase() + value.slice(1),
+        value === "auto"
+          ? "Auto"
+          : value === "xhigh"
+            ? "XHigh"
+            : value[0]!.toUpperCase() + value.slice(1),
     }));
   const ensureAntigravityModelCatalogLoaded = (force = false) => {
     if (!isAntigravityConversationSystem()) return;

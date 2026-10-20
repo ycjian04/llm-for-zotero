@@ -286,7 +286,11 @@ import {
   setAntigravityPermissionModePref,
   setAntigravityRuntimeModelPref,
 } from "../antigravity/prefs";
-import { listAgyModels, resolveAgyBinary } from "../antigravity/agyProcess";
+import {
+  listAgyModels,
+  resolveAgyBinary,
+  type AgyModel,
+} from "../antigravity/agyProcess";
 import {
   ANTIGRAVITY_EFFORT_OPTIONS,
   type AntigravityEffortMode,
@@ -6220,15 +6224,17 @@ function bindAntigravityPreferences(doc: Document): void {
     if (customModelWrap) customModelWrap.hidden = !customized;
     if (customModelInput) customModelInput.disabled = !customized;
   };
-  const renderModels = (models: string[]) => {
+  const renderModels = (models: AgyModel[]) => {
     if (!modelSelect) return;
     const stored = getAntigravityRuntimeModelPref();
-    const values = ["", ...models];
+    const listed = [{ id: "", label: t("Antigravity default") }, ...models];
+    const values = listed.map((model) => model.id);
     modelSelect.replaceChildren(
-      ...values.map((value) => {
+      ...listed.map((model) => {
         const option = el(doc, "option") as HTMLOptionElement;
-        option.value = value;
-        option.textContent = value || t("Antigravity default");
+        option.value = model.id;
+        option.textContent = model.label;
+        if (model.id) option.title = model.id;
         return option;
       }),
     );

@@ -886,6 +886,7 @@ const zhCN: Record<string, string> = {
   Medium: "中",
   High: "高",
   XHigh: "超高",
+  Max: "最大",
   auto: "自动",
   low: "低",
   medium: "中",
