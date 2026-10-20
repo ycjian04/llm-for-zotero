@@ -72,6 +72,38 @@ describe("Antigravity agy headless protocol", function () {
       });
     });
 
+    it("reads a real agy 1.4.2 transcript", function () {
+      const lines = [
+        '{"event":"init","conversation_id":"cf3b","init":{"model":"gemini-4-argon-low","cwd":"/Users/m","tools":["view_file"],"permission_mode":"request-review"}}',
+        '{"event":"step_update","step_update":{"conversation_id":"cf3b","step_index":0,"state":"DONE","step_type":"user_input"}}',
+        '{"event":"step_update","step_update":{"conversation_id":"cf3b","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"Hello! How can I help you today?"}}',
+        '{"event":"step_update","step_update":{"conversation_id":"cf3b","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\\n","duration_seconds":27.69,"usage":{"input_tokens":11765,"output_tokens":13}}}',
+        '{"event":"result","result":{"conversation_id":"cf3b","status":"SUCCESS","response":"Hello! How can I help you today?\\n","num_turns":1,"usage":{"input_tokens":11765,"output_tokens":13,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":11778}}}',
+      ];
+      const events = lines.map(parseAgyStreamLine);
+      assert.deepInclude(events[0], { kind: "init", conversationId: "cf3b" });
+      assert.isNull(events[1]);
+      assert.deepEqual(events[2], {
+        kind: "text",
+        stepIndex: 1,
+        state: "ACTIVE",
+        delta: "Hello! How can I help you today?",
+      });
+      const result = events[4];
+      assert.equal(result?.kind, "result");
+      if (result?.kind === "result") {
+        assert.equal(result.conversationId, "cf3b");
+        assert.equal(result.status, "SUCCESS");
+        assert.equal(result.response, "Hello! How can I help you today?\n");
+      }
+      const acc = new AgyTextAccumulator();
+      for (const event of events) {
+        if (event?.kind === "text")
+          acc.push(event.stepIndex, event.delta, event.state);
+      }
+      assert.equal(acc.text().trim(), "Hello! How can I help you today?");
+    });
+
     it("ignores lines that are not protocol events", function () {
       assert.isNull(parseAgyStreamLine(""));
       assert.isNull(parseAgyStreamLine("Loading model…"));
@@ -204,7 +236,7 @@ describe("Antigravity agy headless protocol", function () {
 describe("Antigravity agy process helpers", function () {
   it("builds the headless arguments from the turn options", function () {
     assert.deepEqual(buildAgyArguments({}), [
-      "--print",
+      "--print=",
       "--input-format",
       "stream-json",
       "--output-format",

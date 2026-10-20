@@ -174,9 +174,10 @@ export function buildAgyArguments(
     "model" | "effort" | "mode" | "skipPermissions" | "conversationId"
   >,
 ): string[] {
-  // A valueless --print reads its prompts from stdin.
+  // --print always takes a value: a bare one swallows the next flag as its
+  // prompt (agy 1.4.2). An empty prompt leaves the turns to stream-json stdin.
   const args = [
-    "--print",
+    "--print=",
     "--input-format",
     "stream-json",
     "--output-format",
