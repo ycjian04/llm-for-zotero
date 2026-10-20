@@ -263,6 +263,22 @@ describe("Antigravity agy process helpers", function () {
     ]);
     assert.deepEqual(parseAgyModelList("not json"), []);
   });
+
+  it("falls back to the plain agy models listing", function () {
+    assert.deepEqual(
+      parseAgyModelList(
+        [
+          "Available models:",
+          "  MODEL                 NAME",
+          "\u001b[1m* claude-sonnet-5-5     Claude Sonnet 5.5 (current)\u001b[0m",
+          "  - gemini-3.5-pro (High)",
+          "  2) gemini-3-flash, Gemini 3 Flash",
+          "Run agy --model <slug> to choose one.",
+        ].join("\n"),
+      ),
+      ["claude-sonnet-5-5", "gemini-3.5-pro", "gemini-3-flash"],
+    );
+  });
 });
 
 describe("Antigravity model menu", function () {

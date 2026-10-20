@@ -394,15 +394,11 @@ function quoteWindowsArg(value: string): string {
   return /[\s"]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
 }
 
-/** `agy models --output-format json`: the model slugs this account can use. */
-export async function listAgyModels(binaryPath?: string): Promise<string[]> {
+type AgyCapture = { stdout: string; stderr: string; timedOut: boolean };
+
+async function captureAgy(binary: string, args: string[]): Promise<AgyCapture> {
   const Subprocess = await CodexAppServerProcess.loadSubprocessModule();
-  const binary = await resolveAgyBinary(binaryPath);
-  const { command, commandArgs } = buildAgyCommand(binary, [
-    "models",
-    "--output-format",
-    "json",
-  ]);
+  const { command, commandArgs } = buildAgyCommand(binary, args);
   const proc = await Subprocess.call({
     command,
     arguments: commandArgs,
@@ -421,24 +417,49 @@ export async function listAgyModels(binaryPath?: string): Promise<string[]> {
       /* already exited */
     }
   }, AGY_MODEL_LIST_TIMEOUT_MS);
-  let out = "";
-  try {
-    while (true) {
-      const chunk = await proc.stdout?.readString?.();
+  const drain = async (pipe: typeof proc.stdout) => {
+    let text = "";
+    while (pipe) {
+      const chunk = await pipe.readString?.();
       if (!chunk) break;
-      out += chunk;
+      text += chunk;
     }
+    return text;
+  };
+  try {
+    const [stdout, stderr] = await Promise.all([
+      drain(proc.stdout),
+      drain(proc.stderr),
+    ]);
     await proc.wait?.();
+    return { stdout, stderr, timedOut };
   } finally {
     clearTimeout(timer);
   }
-  if (timedOut) {
-    throw new AgyTurnError(
-      "agy models did not answer. Run `agy` once in a terminal and sign in with your Google account.",
-      true,
-    );
+}
+
+/**
+ * The model slugs this account can use. Tries `agy models --output-format
+ * json` first and falls back to the plain listing, since the JSON flag is
+ * not available on every build.
+ */
+export async function listAgyModels(binaryPath?: string): Promise<string[]> {
+  const binary = await resolveAgyBinary(binaryPath);
+  let failure = "";
+  for (const args of [["models", "--output-format", "json"], ["models"]]) {
+    const run = await captureAgy(binary, args);
+    if (run.timedOut) {
+      throw new AgyTurnError(
+        "agy models did not answer. Run `agy` once in a terminal and sign in with your Google account.",
+        true,
+      );
+    }
+    const models = parseAgyModelList(run.stdout);
+    if (models.length) return models;
+    if (run.stderr.trim()) failure = describeAgyFailure(run.stderr);
   }
-  return parseAgyModelList(out);
+  if (failure) throw new AgyTurnError(`agy models: ${failure}`, false);
+  return [];
 }
 
 export function parseAgyModelList(raw: string): string[] {
@@ -471,5 +492,34 @@ export function parseAgyModelList(raw: string): string[] {
       }
     }
   }
+  if (!slugs.length) slugs.push(...parseAgyModelText(trimmed));
   return [...new Set(slugs)];
+}
+
+const ANSI_ESCAPE = /\u001b\[[0-9;?]*[A-Za-z]/g;
+const MODEL_SLUG = /^[a-z0-9][a-z0-9._:/-]*$/;
+
+/**
+ * The plain `agy models` listing: one model per line, the slug first, maybe
+ * after a bullet or a "current" marker and before a display name. Only
+ * slug-shaped tokens are kept, so headers and prose drop out.
+ */
+function parseAgyModelText(raw: string): string[] {
+  const slugs: string[] = [];
+  for (const rawLine of raw.replace(ANSI_ESCAPE, "").split(/\r?\n/)) {
+    const line = rawLine
+      .replace(/^[\s*•>✓✔→-]+/u, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .trim();
+    const token = line.split(/[\s,|(]/)[0]?.replace(/[:,]$/, "") || "";
+    if (
+      MODEL_SLUG.test(token) &&
+      /[a-z]/.test(token) &&
+      /\d/.test(token) &&
+      /[-./]/.test(token)
+    ) {
+      slugs.push(token);
+    }
+  }
+  return slugs;
 }
