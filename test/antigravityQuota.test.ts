@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import { parseAntigravityQuota } from "../src/antigravity/quota";
 import { buildQuotaPresentation } from "../src/modules/contextPanel/footerQuotaControl";
-import { buildAgyArguments } from "../src/antigravity/agyProcess";
 
 // Shape of `agy -p /usage --output-format json`, agy 1.4.2 (2026-10-18).
 const usage = {
@@ -97,11 +96,5 @@ describe("Antigravity quota", function () {
     assert.isNull(
       parseAntigravityQuota(JSON.stringify({ command: { data: {} } }), ""),
     );
-  });
-
-  it("opens extra folders to agy with --add-dir", function () {
-    const args = buildAgyArguments({ addDirs: ["/tmp/ctx", " "] });
-    assert.deepEqual(args.slice(-2), ["--add-dir", "/tmp/ctx"]);
-    assert.equal(args.filter((arg) => arg === "--add-dir").length, 1);
   });
 });

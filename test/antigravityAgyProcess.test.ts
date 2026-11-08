@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { runAgyTurn } from "../src/antigravity/agyProcess";
+import { buildAgyArguments, runAgyTurn } from "../src/antigravity/agyProcess";
 import { CodexAppServerProcess } from "../src/utils/codexAppServerProcess";
 
 /** A child like agy 1.4.2: it stays alive after its result until killed. */
@@ -73,5 +73,11 @@ describe("Antigravity agy turn process", function () {
     assert.isTrue(child.isExited());
     assert.isAbove(child.kills.length, 0);
     assert.isAbove(child.kills[0], 0, "SIGTERM is followed by SIGKILL");
+  });
+
+  it("opens extra folders to agy with --add-dir", function () {
+    const args = buildAgyArguments({ addDirs: ["/tmp/ctx", " "] });
+    assert.deepEqual(args.slice(-2), ["--add-dir", "/tmp/ctx"]);
+    assert.equal(args.filter((arg) => arg === "--add-dir").length, 1);
   });
 });
