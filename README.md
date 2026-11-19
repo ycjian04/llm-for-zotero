@@ -1,3 +1,8 @@
+> [!WARNING]
+> **此 fork 已停止维护 / This fork is deprecated.**
+> Antigravity 支持已经并入原仓库，请改用 [yilewang/llm-for-zotero](https://github.com/yilewang/llm-for-zotero)。已安装本 fork 的 Zotero 插件会自动更新到原仓库版本，之后从原仓库获取更新。
+> Antigravity support now ships upstream. Please use [yilewang/llm-for-zotero](https://github.com/yilewang/llm-for-zotero); installed copies of this fork update to the upstream release automatically.
+
 <p align="center">
   <img src="./assets/label.png" alt="LLM for Zotero logo: a brain icon merged with the Zotero shield" width="512" />
 </p>
