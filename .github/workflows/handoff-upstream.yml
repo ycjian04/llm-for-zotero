@@ -1,0 +1,37 @@
+name: Hand off updates to upstream
+
+# This fork is no longer maintained: upstream yilewang/llm-for-zotero now ships
+# Antigravity support itself. Installed copies of the fork read
+# releases/download/release/update.json from this repo, so this job replaces
+# that manifest with upstream's. Zotero then updates them to upstream's xpi
+# (same add-on id, higher version), whose own update_url points at upstream,
+# so every later update comes from upstream directly.
+on:
+  push:
+    branches:
+      - "claude/project-thread-7q8tac"
+    paths:
+      - ".github/workflows/handoff-upstream.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror upstream update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o update.json \
+            https://github.com/yilewang/llm-for-zotero/releases/download/release/update.json
+          # Refuse anything that does not hand over to upstream's xpi.
+          jq -e '.addons["zotero-llm@github.com.yilewang"].updates[0].update_link
+                 | startswith("https://github.com/yilewang/llm-for-zotero/")' update.json
+          cat update.json
+          cp update.json update-beta.json
+          gh release upload release update.json update-beta.json --clobber -R "$REPO"
